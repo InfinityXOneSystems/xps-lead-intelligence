@@ -4,7 +4,7 @@ A full-stack AI-powered lead intelligence platform with autonomous agent capabil
 
 ## Architecture
 
-- **Frontend**: Next.js 14, TypeScript, Tailwind CSS
+- **Frontend**: Next.js 15.5.12, TypeScript, Tailwind CSS
 - **Backend**: Express.js, TypeScript
 - **Database**: PostgreSQL + Prisma ORM
 - **Cache**: Redis
