@@ -9,9 +9,19 @@ interface AdminSettingsProps {
   initialTab?: 'connectors' | 'config';
 }
 
+const RAILWAY_PROJECT_ID = '0361239a-54f7-4db8-8350-d7931d2b9260';
+const RAILWAY_PROJECT_NAME = 'Lead Intelligence';
+const RAILWAY_PROJECT_URL = `https://railway.app/project/${RAILWAY_PROJECT_ID}`;
+
 const CONNECTOR_TYPES = [
   { type: 'GITHUB', label: 'GitHub', description: 'Connect to GitHub repositories and CI/CD' },
-  { type: 'RAILWAY', label: 'Railway', description: 'Deploy and manage Railway services' },
+  {
+    type: 'RAILWAY',
+    label: 'Railway',
+    description: `Deploy and manage Railway services — Project: ${RAILWAY_PROJECT_NAME}`,
+    projectUrl: RAILWAY_PROJECT_URL,
+    projectId: RAILWAY_PROJECT_ID,
+  },
   { type: 'GPT', label: 'GPT Actions', description: 'OpenAI GPT custom actions integration' },
   { type: 'GOOGLE', label: 'Google', description: 'Google Workspace and Analytics' },
   { type: 'XPS', label: 'XPS Orchestrator', description: 'XPS orchestration platform' },
@@ -134,7 +144,7 @@ export function AdminSettings({ initialTab = 'connectors' }: AdminSettingsProps)
         </div>
       ) : tab === 'connectors' ? (
         <div className="grid grid-cols-1 gap-4">
-          {CONNECTOR_TYPES.map(({ type, label, description }) => {
+          {CONNECTOR_TYPES.map(({ type, label, description, projectUrl, projectId }) => {
             const connector = getConnectorStatus(type);
             const isConnected = connector?.status === 'CONNECTED';
 
@@ -164,6 +174,16 @@ export function AdminSettings({ initialTab = 'connectors' }: AdminSettingsProps)
                       )}
                     </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+                    {projectUrl && (
+                      <a
+                        href={projectUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 mt-0.5 inline-flex items-center gap-1"
+                      >
+                        View project ({projectId?.slice(0, 8)}…) ↗
+                      </a>
+                    )}
                     {connector?.lastChecked && (
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                         Last checked: {new Date(connector.lastChecked).toLocaleString()}
@@ -195,14 +215,15 @@ export function AdminSettings({ initialTab = 'connectors' }: AdminSettingsProps)
                 { key: 'groq_api_key', label: 'Groq API Key', placeholder: 'gsk_...' },
                 { key: 'openai_api_key', label: 'OpenAI API Key', placeholder: 'sk-...' },
                 { key: 'github_token', label: 'GitHub Token', placeholder: 'ghp_...' },
-                { key: 'railway_token', label: 'Railway Token', placeholder: 'railway_...' },
-              ].map(({ key, label, placeholder }) => (
+                { key: 'railway_token', label: 'Railway Token', placeholder: 'railway_...', type: 'password' },
+              ].map(({ key, label, placeholder, type: inputType = 'password' }) => (
+
                 <div key={key}>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     {label}
                   </label>
                   <input
-                    type="password"
+                    type={inputType}
                     value={config[key] || ''}
                     onChange={(e) => setConfig((prev) => ({ ...prev, [key]: e.target.value }))}
                     placeholder={placeholder}
@@ -210,6 +231,39 @@ export function AdminSettings({ initialTab = 'connectors' }: AdminSettingsProps)
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-1">Railway Project</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Pre-wired to the Lead Intelligence Railway project</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project Name</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={RAILWAY_PROJECT_NAME}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 text-sm cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Project ID</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={RAILWAY_PROJECT_ID}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 text-sm font-mono cursor-not-allowed"
+                />
+              </div>
+              <a
+                href={RAILWAY_PROJECT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Open Railway Dashboard ↗
+              </a>
             </div>
           </div>
 

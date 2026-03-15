@@ -49,4 +49,33 @@ docker-compose up
 
 ## Deployment
 
-Deployed via Railway. Push to `main` branch triggers CI/CD pipeline.
+Deployed on [Railway](https://railway.app) — push to `main` triggers the full CI/CD pipeline automatically.
+
+| | |
+|---|---|
+| **Project** | Lead Intelligence |
+| **Project ID** | `0361239a-54f7-4db8-8350-d7931d2b9260` |
+| **Dashboard** | https://railway.app/project/0361239a-54f7-4db8-8350-d7931d2b9260 |
+| **Services** | `backend` (Express API) · `frontend` (Next.js) · `postgres` · `redis` |
+
+### Required GitHub Secrets
+
+Set these in your repository's **Settings → Secrets → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `RAILWAY_TOKEN` | Railway API token (from Railway dashboard → Account Settings) |
+| `NEXT_PUBLIC_API_URL` | Public URL of the deployed backend service |
+| `DATABASE_URL` | PostgreSQL connection string (auto-set by Railway Postgres plugin) |
+| `REDIS_URL` | Redis connection string (auto-set by Railway Redis plugin) |
+| `GROQ_API_KEY` | Groq API key for LLM |
+| `JWT_SECRET` | Random secret for JWT signing |
+
+### Manual Deploy via Railway CLI
+```bash
+npm install -g @railway/cli
+railway login
+railway link 0361239a-54f7-4db8-8350-d7931d2b9260
+railway up --service backend
+railway up --service frontend
+```
