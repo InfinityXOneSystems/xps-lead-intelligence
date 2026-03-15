@@ -7,12 +7,52 @@ import { Router, Request, Response } from 'express';
 import https from 'https';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db/prisma';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'xps-dev-secret-change-in-prod';
+const FRONTEND_URL = (() => {
+  const url = process.env.FRONTEND_URL || 'http://localhost:3000';
+  // Validate FRONTEND_URL is a proper HTTP/HTTPS URL to prevent open redirect
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('FRONTEND_URL must use http or https protocol');
+    }
+  } catch {
+    console.warn('FRONTEND_URL is not a valid URL, defaulting to http://localhost:3000');
+    return 'http://localhost:3000';
+  }
+  return url;
+})();
+
+const JWT_SECRET = (() => {
+  const secret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+  if (!secret) {
+    // In production, a missing secret is a critical error — fail fast
+    if (process.env.NODE_ENV === 'production') {
+      console.error('CRITICAL: JWT_SECRET environment variable is required in production. Exiting.');
+      process.exit(1);
+    }
+    console.warn('WARNING: JWT_SECRET not set. Using insecure default for development only.');
+    return 'xps-dev-secret-change-in-prod-INSECURE';
+  }
+  return secret;
+})();
+
 const JWT_TTL = '30d';
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { error: 'Too many authentication attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.use(authLimiter);
 
 // ─── JWT helpers ──────────────────────────────────────────────────────────────
 
@@ -28,28 +68,40 @@ function verifyJwt(token: string): Record<string, unknown> | null {
   }
 }
 
-function getBearerToken(req: Request): string | null {
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) return auth.slice(7);
-  return null;
-}
+// ─── SSRF guard: block requests to private/loopback IP ranges ─────────────────
 
-// ─── Middleware: optional auth (attaches user to req if valid JWT) ─────────────
+const PRIVATE_IP_PATTERNS = [
+  /^localhost$/i,
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2[0-9]|3[01])\./,
+  /^192\.168\./,
+  /^169\.254\./,  // Link-local / AWS metadata
+  /^::1$/,         // IPv6 loopback
+  /^fc00:/i,       // IPv6 private
+];
 
-export function optionalAuth(req: Request & { user?: Record<string, unknown> }, _res: Response, next: () => void) {
-  const token = getBearerToken(req);
-  if (token) {
-    const payload = verifyJwt(token);
-    if (payload) req.user = payload;
+function assertSafeExternalUrl(urlString: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error(`Invalid URL: ${urlString}`);
   }
-  next();
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Only HTTPS URLs are allowed (got ${parsed.protocol})`);
+  }
+  if (PRIVATE_IP_PATTERNS.some((p) => p.test(parsed.hostname))) {
+    throw new Error(`Blocked request to private/internal host: ${parsed.hostname}`);
+  }
+  return parsed;
 }
 
-// ─── Helper: HTTPS GET with JSON response ─────────────────────────────────────
+// ─── Helper: HTTPS GET/POST ────────────────────────────────────────────────────
 
 function httpsGet(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+  const parsed = assertSafeExternalUrl(url);
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
     const opts = {
       hostname: parsed.hostname,
       path: parsed.pathname + parsed.search,
@@ -67,8 +119,8 @@ function httpsGet(url: string, headers: Record<string, string> = {}): Promise<un
 }
 
 function httpsPost(url: string, body: string, headers: Record<string, string> = {}): Promise<unknown> {
+  const parsed = assertSafeExternalUrl(url);
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
     const opts = {
       hostname: parsed.hostname,
       path: parsed.pathname + parsed.search,
@@ -319,6 +371,13 @@ router.post('/railway', async (req: Request, res: Response) => {
   const { token } = req.body as { token?: string };
   if (!token?.trim()) {
     return res.status(400).json({ error: 'Railway API token is required' });
+  }
+  // Validate token length and character set to prevent injection
+  if (token.length > 512) {
+    return res.status(400).json({ error: 'Invalid Railway token format (too long)' });
+  }
+  if (!/^[A-Za-z0-9._\-]+$/.test(token.trim())) {
+    return res.status(400).json({ error: 'Invalid Railway token format (unexpected characters)' });
   }
   try {
     // Validate token via Railway GraphQL API

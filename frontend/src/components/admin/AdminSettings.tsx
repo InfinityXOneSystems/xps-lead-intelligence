@@ -165,13 +165,19 @@ export function AdminSettings({ initialTab = 'accounts' }: AdminSettingsProps) {
   const handleGoogleLogin = async () => {
     setLoginBusy('google');
     try { await loginGoogle(); }
-    catch (err) { showMsg(`Google: ${err instanceof Error ? err.message : 'Add GOOGLE_CLIENT_ID to Railway env vars'}`, false); setLoginBusy(null); }
+    catch (err) {
+      showMsg(`Google sign-in failed: ${err instanceof Error ? err.message : 'Check that GOOGLE_CLIENT_ID is set in Railway env vars'}`, false);
+      setLoginBusy(null);
+    }
   };
 
   const handleGithubLogin = async () => {
     setLoginBusy('github');
     try { await loginGithub(); }
-    catch (err) { showMsg(`GitHub: ${err instanceof Error ? err.message : 'Add GITHUB_OAUTH_CLIENT_ID to Railway env vars'}`, false); setLoginBusy(null); }
+    catch (err) {
+      showMsg(`GitHub sign-in failed: ${err instanceof Error ? err.message : 'Check that GITHUB_OAUTH_CLIENT_ID is set in Railway env vars'}`, false);
+      setLoginBusy(null);
+    }
   };
 
   const handleRailwayLogin = async () => {

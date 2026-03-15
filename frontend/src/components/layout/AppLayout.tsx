@@ -84,14 +84,18 @@ export function AppLayout() {
             Agent Online
           </span>
 
-          {/* suppressHydrationWarning prevents the SSR/CSR theme icon mismatch from crashing React state */}
+          {/* Theme toggle — mounted guard prevents SSR/CSR icon mismatch causing hydration failure */}
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-lg transition-colors"
+            className="p-2 rounded-lg transition-colors w-8 h-8 flex items-center justify-center"
             style={{ color: 'rgba(255,255,255,0.6)' }}
-            aria-label="Toggle theme"
-            suppressHydrationWarning>
-            {mounted && (theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
+            aria-label="Toggle theme">
+            {/* Render placeholder matching icon dimensions to prevent layout shift */}
+            {mounted ? (
+              theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />
+            ) : (
+              <span className="w-4 h-4 block" suppressHydrationWarning />
+            )}
           </button>
         </div>
       </header>

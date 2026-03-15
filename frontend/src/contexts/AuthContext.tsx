@@ -77,7 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ── Fetch auth status ────────────────────────────────────────────────────
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/auth/status`);
+      const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`${API_URL}/api/auth/status`, { headers });
       if (!res.ok) {
         setAuth({});
         return;
