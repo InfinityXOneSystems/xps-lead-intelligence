@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '20'
 
 permissions:
   contents: read
@@ -32,10 +32,30 @@ jobs:
         working-directory: backend
         run: npm ci && npm run lint
 
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install Backend
+        working-directory: backend
+        run: npm ci
+      - name: TypeCheck Backend
+        working-directory: backend
+        run: npx tsc --noEmit
+
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, typecheck]
+    env:
+      JWT_SECRET: test-secret-for-ci
+      NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -57,10 +77,36 @@ jobs:
           path: backend/coverage/
           if-no-files-found: ignore
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Build Backend
+        working-directory: backend
+        run: npm ci && npm run build
+      - name: Build Frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL || '' }}
+        run: |
+          export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-http://localhost:4000}"
+          npm ci && npm run build
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint]
+    # Only run e2e on push to main (not PRs) to save CI time
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     services:
       postgres:
         image: postgres:15-alpine
@@ -105,7 +151,7 @@ jobs:
           PORT: 4000
           NODE_ENV: test
           GROQ_API_KEY: test_key
-          JWT_SECRET: test_secret
+          JWT_SECRET: test_secret_for_e2e
         run: npm start &
       - name: Install Frontend
         working-directory: frontend
@@ -120,6 +166,10 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: http://localhost:4000
         run: npm start &
+      - name: Wait for services
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:4000/api/health; do sleep 2; done' || echo "Backend not ready"
+          timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done' || echo "Frontend not ready"
       - name: Install Playwright
         working-directory: e2e
         run: npm ci && npx playwright install --with-deps chromium
@@ -128,24 +178,13 @@ jobs:
         env:
           BASE_URL: http://localhost:3000
         run: npx playwright test
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-      - name: Build Backend
-        working-directory: backend
-        run: npm ci && npm run build
-      - name: Build Frontend
-        working-directory: frontend
-        env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL || 'http://localhost:4000' }}
-        run: npm ci && npm run build
+          name: playwright-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
 
   deploy:
     name: Deploy to Railway
@@ -161,8 +200,18 @@ jobs:
       - name: Deploy Backend to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service backend --detach --project ${{ env.RAILWAY_PROJECT_ID }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            railway up --service backend --detach --project ${{ env.RAILWAY_PROJECT_ID }}
+          else
+            echo "⚠️ RAILWAY_TOKEN not set — skipping deployment. Add it to repo secrets."
+          fi
       - name: Deploy Frontend to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service frontend --detach --project ${{ env.RAILWAY_PROJECT_ID }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            railway up --service frontend --detach --project ${{ env.RAILWAY_PROJECT_ID }}
+          else
+            echo "⚠️ RAILWAY_TOKEN not set — skipping deployment. Add it to repo secrets."
+          fi

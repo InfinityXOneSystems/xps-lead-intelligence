@@ -376,7 +376,7 @@ router.post('/railway', async (req: Request, res: Response) => {
   if (token.length > 512) {
     return res.status(400).json({ error: 'Invalid Railway token format (too long)' });
   }
-  if (!/^[A-Za-z0-9._\-]+$/.test(token.trim())) {
+  if (!/^[A-Za-z0-9._-]+$/.test(token.trim())) {
     return res.status(400).json({ error: 'Invalid Railway token format (unexpected characters)' });
   }
   try {

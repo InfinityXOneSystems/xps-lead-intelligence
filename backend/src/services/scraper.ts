@@ -82,7 +82,7 @@ function extractEmail(html: string): string | null {
   if (mailto) return mailto.replace('mailto:', '').split('?')[0].trim().toLowerCase();
   // Regex scan for email-like patterns in text
   const bodyText = $.text();
-  const emailMatch = bodyText.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/);
+  const emailMatch = bodyText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   return emailMatch ? emailMatch[0].toLowerCase() : null;
 }
 

@@ -121,7 +121,8 @@ export async function getContainerLogs(
   const stream = await container.logs({ stdout: true, stderr: true, tail, follow: false });
   // logs come as a Buffer with Docker multiplexing headers
   const raw = stream.toString('utf8');
-  // Strip the 8-byte headers (simple approach: remove non-printable chars)
+  // Strip the 8-byte Docker stream headers (non-printable control chars)
+  // eslint-disable-next-line no-control-regex
   return raw.replace(/[\x00-\x08\x0e-\x1f]/g, '').trim();
 }
 
