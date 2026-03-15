@@ -99,6 +99,44 @@ enum ConnectorStatus {
   @@map("connector_status")
 }
 
+model AgentTask {
+  id        String     @id @default(cuid())
+  sessionId String
+  input     String
+  output    String
+  toolCalls Json       @default("[]")
+  steps     Int        @default(0)
+  status    TaskStatus @default(COMPLETED)
+  createdAt DateTime   @default(now())
+
+  @@index([sessionId])
+  @@map("agent_tasks")
+}
+
+enum TaskStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+
+  @@map("task_status")
+}
+
+model GitHubEvent {
+  id             String   @id @default(cuid())
+  deliveryId     String   @unique
+  event          String
+  action         String?
+  repository     String?
+  sender         String?
+  payload        Json
+  processedAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([event])
+  @@index([repository])
+  @@map("github_events")
+}
+
 model AdminConfig {
   id        String   @id @default(cuid())
   key       String   @unique
