@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Webhooks } from '@octokit/webhooks';
+import rateLimit from 'express-rate-limit';
 import {
   listRepos,
   getRepo,
@@ -27,7 +28,29 @@ import {
 } from '../services/github';
 import { prisma } from '../db/prisma';
 
+// ─── Rate limiters ────────────────────────────────────────────────────────────
+
+// 120 webhook deliveries per minute per IP is generous for GitHub App usage
+const webhookRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+});
+
+// General API endpoints — 300 req/min per IP
+const apiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+});
+
 const router = Router();
+
+router.use(apiRateLimit);
 
 // ─── App metadata ─────────────────────────────────────────────────────────────
 
@@ -301,7 +324,7 @@ router.post('/repos/:owner/:repo/releases', async (req: Request, res: Response) 
 
 // ─── Webhook receiver ─────────────────────────────────────────────────────────
 
-router.post('/webhooks', async (req: Request, res: Response) => {
+router.post('/webhooks', webhookRateLimit, async (req: Request, res: Response) => {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
   const deliveryId = req.headers['x-github-delivery'] as string;
   const event = req.headers['x-github-event'] as string;

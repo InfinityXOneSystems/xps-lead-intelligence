@@ -2,14 +2,8 @@
 
 import { useState } from 'react';
 import {
-  LayoutDashboard,
-  Users,
-  Bot,
-  BarChart3,
-  Plug,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
+  LayoutDashboard, Users, Bot, BarChart3, Plug, Settings,
+  ChevronLeft, ChevronRight, Github, Code2, Box,
 } from 'lucide-react';
 import { ActiveSection } from './AppLayout';
 import clsx from 'clsx';
@@ -18,15 +12,19 @@ interface NavItem {
   id: ActiveSection;
   label: string;
   icon: React.ReactNode;
+  dividerBefore?: boolean;
 }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-  { id: 'leads', label: 'Leads', icon: <Users className="w-5 h-5" /> },
-  { id: 'agent', label: 'Agent', icon: <Bot className="w-5 h-5" /> },
-  { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-5 h-5" /> },
-  { id: 'connectors', label: 'Connectors', icon: <Plug className="w-5 h-5" /> },
-  { id: 'settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
+  { id: 'dashboard',  label: 'Dashboard',  icon: <LayoutDashboard className="w-4 h-4" /> },
+  { id: 'leads',      label: 'Leads',      icon: <Users className="w-4 h-4" /> },
+  { id: 'agent',      label: 'Agent',      icon: <Bot className="w-4 h-4" /> },
+  { id: 'analytics',  label: 'Analytics',  icon: <BarChart3 className="w-4 h-4" /> },
+  { id: 'github',     label: 'GitHub',     icon: <Github className="w-4 h-4" />, dividerBefore: true },
+  { id: 'editor',     label: 'AI Editor',  icon: <Code2 className="w-4 h-4" /> },
+  { id: 'sandbox',    label: 'Sandbox',    icon: <Box className="w-4 h-4" /> },
+  { id: 'connectors', label: 'Connectors', icon: <Plug className="w-4 h-4" />, dividerBefore: true },
+  { id: 'settings',   label: 'Settings',   icon: <Settings className="w-4 h-4" /> },
 ];
 
 interface LeftSidebarProps {
@@ -40,32 +38,58 @@ export function LeftSidebar({ activeSection, onNavigate }: LeftSidebarProps) {
   return (
     <aside
       className={clsx(
-        'flex flex-col bg-[#1a1a2e] text-white transition-all duration-300 flex-shrink-0',
-        collapsed ? 'w-16' : 'w-56'
+        'flex flex-col flex-shrink-0 transition-all duration-300',
+        collapsed ? 'w-14' : 'w-52',
       )}
+      style={{
+        background: 'linear-gradient(180deg, #0d0d1f 0%, #10101e 100%)',
+        borderRight: '1px solid rgba(99,179,237,0.15)',
+      }}
     >
-      <nav className="flex-1 py-4">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            className={clsx(
-              'w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors',
-              activeSection === item.id
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-300 hover:bg-white/10 hover:text-white'
-            )}
-            title={collapsed ? item.label : undefined}
-          >
-            <span className="flex-shrink-0">{item.icon}</span>
-            {!collapsed && <span>{item.label}</span>}
-          </button>
-        ))}
+      <nav className="flex-1 py-3 overflow-y-auto">
+        {navItems.map((item) => {
+          const isActive = activeSection === item.id;
+          return (
+            <div key={item.id}>
+              {item.dividerBefore && (
+                <div className="mx-3 my-2 border-t" style={{ borderColor: 'rgba(99,179,237,0.1)' }} />
+              )}
+              <button
+                onClick={() => onNavigate(item.id)}
+                title={collapsed ? item.label : undefined}
+                className={clsx(
+                  'w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-all duration-150 relative',
+                  isActive ? 'text-white' : 'text-white/50 hover:text-white/80',
+                )}
+                style={isActive ? {
+                  background: 'linear-gradient(90deg, rgba(99,179,237,0.15) 0%, rgba(123,47,247,0.08) 100%)',
+                } : undefined}
+              >
+                {/* Electric active indicator */}
+                {isActive && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 rounded-r-full"
+                    style={{ background: 'linear-gradient(180deg, var(--electric-1), var(--electric-2))' }}
+                  />
+                )}
+                <span className={clsx('flex-shrink-0', isActive ? 'text-blue-300' : '')}>
+                  {item.icon}
+                </span>
+                {!collapsed && <span className="truncate">{item.label}</span>}
+              </button>
+            </div>
+          );
+        })}
       </nav>
 
+      {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center justify-center p-3 text-gray-400 hover:text-white hover:bg-white/10 transition-colors border-t border-white/10"
+        className="flex items-center justify-center p-3 transition-colors"
+        style={{
+          borderTop: '1px solid rgba(99,179,237,0.1)',
+          color: 'rgba(255,255,255,0.3)',
+        }}
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
@@ -73,3 +97,4 @@ export function LeftSidebar({ activeSection, onNavigate }: LeftSidebarProps) {
     </aside>
   );
 }
+

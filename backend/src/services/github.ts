@@ -1,5 +1,6 @@
 import { App } from '@octokit/app';
 import { Octokit } from '@octokit/rest';
+import type { Octokit as OctokitCore } from '@octokit/core';
 import { cacheGet, cacheSet } from './redis';
 
 // ─── GitHub App client (singleton) ─────────────────────────────────────────
@@ -38,11 +39,10 @@ export async function getInstallationOctokit(installationId: number): Promise<Oc
   }
 
   const app = getApp();
-  const octokit = await app.getInstallationOctokit(installationId);
-  // Cache for 55 minutes (tokens last 60 min)
-  const { token } = (await octokit.auth({ type: 'installation' })) as { token: string };
+  const installOctokit = await app.getInstallationOctokit(installationId) as unknown as OctokitCore;
+  const { token } = (await installOctokit.auth({ type: 'installation' })) as { token: string };
   await cacheSet(cacheKey, JSON.stringify({ token }), 55 * 60);
-  return octokit;
+  return new Octokit({ auth: token });
 }
 
 // ─── Get the best available Octokit ─────────────────────────────────────────

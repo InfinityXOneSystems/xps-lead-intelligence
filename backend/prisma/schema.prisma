@@ -145,3 +145,27 @@ model AdminConfig {
 
   @@map("admin_config")
 }
+
+model Sandbox {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  template    String
+  containerId String?
+  hostPort    Int?
+  status      SandboxStatus @default(CREATING)
+  previewUrl  String?
+  metadata    Json         @default("{}")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("sandboxes")
+}
+
+enum SandboxStatus {
+  CREATING
+  RUNNING
+  STOPPED
+  ERROR
+
+  @@map("sandbox_status")
+}

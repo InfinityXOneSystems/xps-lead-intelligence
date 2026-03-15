@@ -2,39 +2,151 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Electric Metallic Design System ──────────────────────────────────────── */
+
+/* Keyframes */
+@keyframes electric-shimmer {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+
+@keyframes electric-pulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 6px 1px rgba(99,179,237,0.35); }
+  50%       { opacity: 0.8; box-shadow: 0 0 16px 4px rgba(99,179,237,0.6); }
+}
+
+@keyframes metallic-border {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Base */
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+  --electric-1: #00d2ff;
+  --electric-2: #7b2ff7;
+  --electric-3: #ff6b35;
+  --metallic-1: #c0c0c0;
+  --metallic-2: #e8e8e8;
+  --bg-deep:    #0a0a14;
+  --bg-card:    #10101e;
+  --bg-surface: #151528;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+html, body {
+  background-color: var(--bg-deep);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
 }
 
-body {
-  @apply bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+* { box-sizing: border-box; padding: 0; margin: 0; }
+
+/* ── Electric card border mixin ────────────────────────────────────────────── */
+.card-electric {
+  background: var(--bg-card);
+  border-radius: 12px;
+  position: relative;
+  color: white;
+}
+.card-electric::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 13px;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    var(--electric-1),
+    var(--electric-2),
+    var(--electric-3),
+    var(--electric-1)
+  );
+  background-size: 300% 300%;
+  animation: electric-shimmer 4s ease infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* Subtle version — 1px thin border, slower animation */
+.card-metallic {
+  background: var(--bg-card);
+  border-radius: 10px;
+  position: relative;
+  color: white;
+}
+.card-metallic::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 11px;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    rgba(192,192,192,0.9),
+    rgba(99,179,237,0.6),
+    rgba(192,192,192,0.4),
+    rgba(123,47,247,0.5),
+    rgba(192,192,192,0.9)
+  );
+  background-size: 400% 400%;
+  animation: metallic-border 6s ease infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+  mask-composite: exclude;
+  pointer-events: none;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
+/* ── Scrollbars ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(99,179,237,0.3); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99,179,237,0.6); }
+
+/* ── Utility classes ───────────────────────────────────────────────────────── */
+.text-white-primary   { color: #ffffff; }
+.text-white-secondary { color: rgba(255,255,255,0.7); }
+.text-white-muted     { color: rgba(255,255,255,0.4); }
+.bg-deep    { background-color: var(--bg-deep); }
+.bg-card    { background-color: var(--bg-card); }
+.bg-surface { background-color: var(--bg-surface); }
+
+.animate-fade-in    { animation: fade-in 0.25s ease forwards; }
+.animate-spin-slow  { animation: spin-slow 3s linear infinite; }
+.animate-electric   { animation: electric-pulse 2s ease-in-out infinite; }
+
+/* ── Code editor ───────────────────────────────────────────────────────────── */
+.code-editor {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #0d0d1a;
+  color: #e2e8f0;
+  border: 1px solid rgba(99,179,237,0.2);
+  border-radius: 8px;
+  resize: none;
+  outline: none;
+  padding: 16px;
+  tab-size: 2;
+}
+.code-editor:focus {
+  border-color: rgba(99,179,237,0.5);
+  box-shadow: 0 0 0 2px rgba(99,179,237,0.1);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
-}

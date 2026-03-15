@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Users, Zap, Activity, CheckCircle } from 'lucide-react';
+import { Users, Zap, Activity, CheckCircle, Github, Box, Code2, Cpu } from 'lucide-react';
 import { api } from '@/lib/api';
 
 export function DashboardHome() {
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [leadCount, setLeadCount] = useState<number | null>(null);
+  const [xpsStatus, setXpsStatus] = useState<{ toolCount?: number; llm?: string } | null>(null);
 
   useEffect(() => {
     api.health()
@@ -16,78 +17,104 @@ export function DashboardHome() {
     api.leads.list()
       .then((data) => setLeadCount(data.total))
       .catch(() => setLeadCount(0));
+
+    api.xps.status()
+      .then((s) => setXpsStatus({ toolCount: (s.tools || []).length, llm: s.capabilities?.llm as string }))
+      .catch(() => null);
   }, []);
 
   const stats = [
     {
       title: 'Total Leads',
       value: leadCount !== null ? String(leadCount) : '…',
-      icon: <Users className="w-6 h-6 text-blue-500" />,
-      bg: 'bg-blue-50 dark:bg-blue-900/20',
+      icon: <Users className="w-5 h-5" />,
+      color: 'var(--electric-1)',
     },
     {
       title: 'API Status',
       value: apiStatus === 'checking' ? '…' : apiStatus === 'online' ? 'Online' : 'Offline',
-      icon: <Activity className={`w-6 h-6 ${apiStatus === 'online' ? 'text-green-500' : 'text-red-500'}`} />,
-      bg: 'bg-green-50 dark:bg-green-900/20',
+      icon: <Activity className="w-5 h-5" />,
+      color: apiStatus === 'online' ? '#68d391' : '#fc8181',
     },
     {
-      title: 'Active Agents',
-      value: '1',
-      icon: <Zap className="w-6 h-6 text-purple-500" />,
-      bg: 'bg-purple-50 dark:bg-purple-900/20',
+      title: 'Agent Tools',
+      value: xpsStatus?.toolCount ? String(xpsStatus.toolCount) : '…',
+      icon: <Zap className="w-5 h-5" />,
+      color: 'var(--electric-2)',
     },
     {
       title: 'Connectors',
       value: '5',
-      icon: <CheckCircle className="w-6 h-6 text-orange-500" />,
-      bg: 'bg-orange-50 dark:bg-orange-900/20',
+      icon: <CheckCircle className="w-5 h-5" />,
+      color: 'var(--electric-3)',
     },
   ];
 
+  const capabilities = [
+    { icon: <Github className="w-4 h-4" />, label: 'GitHub App', desc: 'Repos, issues, PRs, workflows, code', color: 'var(--electric-1)' },
+    { icon: <Box className="w-4 h-4" />, label: 'Docker MCP', desc: 'Local machine access via socket gateway', color: 'var(--electric-2)' },
+    { icon: <Code2 className="w-4 h-4" />, label: 'AI Editor', desc: 'Lovable/V0-style component generation', color: '#68d391' },
+    { icon: <Cpu className="w-4 h-4" />, label: 'Sandbox', desc: 'Spin up full apps in Docker in minutes', color: 'var(--electric-3)' },
+  ];
+
   return (
-    <div className="p-8">
+    <div className="p-8" style={{ color: 'white' }}>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          Welcome to XPS Lead Intelligence Platform
+        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+        <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>
+          XPS Lead Intelligence Platform · Autonomous AI Agent
+          {xpsStatus?.llm && <span className="ml-2 text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'rgba(99,179,237,0.1)', border: '1px solid rgba(99,179,237,0.25)', color: 'var(--electric-1)' }}>
+            {xpsStatus.llm}
+          </span>}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
-          <div
-            key={stat.title}
-            className={`rounded-xl p-6 ${stat.bg} border border-transparent`}
-          >
+          <div key={stat.title} className="card-metallic p-5">
             <div className="flex items-center justify-between mb-3">
-              {stat.icon}
+              <span style={{ color: stat.color }}>{stat.icon}</span>
             </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{stat.title}</p>
+            <p className="text-2xl font-bold text-white">{stat.value}</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>{stat.title}</p>
           </div>
         ))}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Start</h2>
-        <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
-          <li className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
-            Navigate to <strong>Leads</strong> to manage your lead pipeline
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-purple-500" />
-            Use <strong>Agent</strong> to chat with the AI orchestrator
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500" />
-            Go to <strong>Connectors</strong> to set up integrations
-          </li>
-          <li className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-orange-500" />
-            Visit <strong>Settings</strong> to configure API keys
-          </li>
+      {/* Capabilities */}
+      <div className="card-electric p-6 mb-6">
+        <h2 className="text-sm font-semibold mb-4 text-white">Platform Capabilities</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {capabilities.map((cap) => (
+            <div key={cap.label} className="flex items-start gap-3 p-3 rounded-lg"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <span className="mt-0.5 flex-shrink-0" style={{ color: cap.color }}>{cap.icon}</span>
+              <div>
+                <p className="text-sm font-medium text-white">{cap.label}</p>
+                <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{cap.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick start */}
+      <div className="card-metallic p-6">
+        <h2 className="text-sm font-semibold mb-3 text-white">Quick Start</h2>
+        <ul className="space-y-2 text-sm" style={{ color: 'rgba(255,255,255,0.55)' }}>
+          {[
+            { dot: 'var(--electric-1)', text: <>Go to <strong className="text-white">Agent</strong> — ask it to list your GitHub repos, create issues, or generate code</> },
+            { dot: 'var(--electric-2)', text: <>Open <strong className="text-white">AI Editor</strong> — describe a UI component in natural language, see it live</> },
+            { dot: '#68d391',            text: <>Use <strong className="text-white">Sandbox</strong> — spin up a full Next.js/React/Node app in Docker in one click</> },
+            { dot: 'var(--electric-3)', text: <>Check <strong className="text-white">Connectors</strong> — configure GitHub App, Railway, Google credentials</> },
+          ].map(({ dot, text }, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: dot }} />
+              <span>{text}</span>
+            </li>
+          ))}
         </ul>
       </div>
     </div>

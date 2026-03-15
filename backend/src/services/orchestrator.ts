@@ -112,7 +112,8 @@ export async function processAgentMessage(
   }
 
   if (!finalText) {
-    finalText = `Completed ${steps} steps with ${allToolCalls.length} tool calls.`;
+    console.warn(`[Orchestrator] Session ${sid}: MAX_TOOL_ROUNDS (${MAX_TOOL_ROUNDS}) exhausted with ${allToolCalls.length} tool calls and no final response`);
+    finalText = `Completed ${steps} steps with ${allToolCalls.length} tool calls. The task may require further input.`;
   }
 
   // Persist updated session

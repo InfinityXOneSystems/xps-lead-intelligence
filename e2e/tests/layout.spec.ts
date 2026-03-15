@@ -44,13 +44,13 @@ test.describe('XPS Lead Intelligence Layout', () => {
   test('navigates to Agent chat interface', async ({ page }) => {
     await page.getByRole('button', { name: /agent/i }).click();
     await expect(page.getByText(/XPS Orchestrator/i)).toBeVisible();
-    await expect(page.getByPlaceholder(/message xps orchestrator/i)).toBeVisible();
+    await expect(page.getByPlaceholder(/Ask the agent to do anything/i)).toBeVisible();
   });
 
   test('agent chat interface has input and send button', async ({ page }) => {
     await page.getByRole('button', { name: /agent/i }).click();
 
-    const input = page.getByPlaceholder(/message xps orchestrator/i);
+    const input = page.getByPlaceholder(/Ask the agent to do anything/i);
     await expect(input).toBeVisible();
     await input.fill('Hello agent');
     await expect(input).toHaveValue('Hello agent');
@@ -83,9 +83,9 @@ test.describe('XPS Lead Intelligence Layout', () => {
   });
 
   test('right toolbar is visible', async ({ page }) => {
-    // Right toolbar should have quick action buttons
-    await expect(page.getByRole('button', { name: /ask agent/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /view leads/i })).toBeVisible();
+    // Right toolbar should have quick action buttons (identified by title attribute)
+    await expect(page.getByTitle('Agent')).toBeVisible();
+    await expect(page.getByTitle('Leads')).toBeVisible();
   });
 
   test('navigates to dashboard from sidebar', async ({ page }) => {
@@ -93,6 +93,6 @@ test.describe('XPS Lead Intelligence Layout', () => {
     await page.getByRole('button', { name: /leads/i }).click();
     // Then back to dashboard
     await page.getByRole('button', { name: /dashboard/i }).click();
-    await expect(page.getByText('Welcome to XPS Lead Intelligence Platform')).toBeVisible();
+    await expect(page.getByText('Dashboard')).toBeVisible();
   });
 });
