@@ -10,6 +10,7 @@ import xpsRouter from './routes/xps';
 import emailRouter from './routes/email';
 import socialRouter from './routes/social';
 import outreachRouter from './routes/outreach';
+import authRouter from './routes/auth';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '4000', 10);
@@ -37,6 +38,7 @@ app.use('/api/xps', xpsRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/social', socialRouter);
 app.use('/api/outreach', outreachRouter);
+app.use('/api/auth', authRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

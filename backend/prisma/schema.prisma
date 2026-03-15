@@ -383,6 +383,34 @@ model AdminConfig {
   @@map("admin_config")
 }
 
+// ── OAuth / User Sessions ─────────────────────────────────────────────────────
+
+model UserAuth {
+  id           String   @id @default(cuid())
+  provider     AuthProvider @unique
+  userId       String?
+  userEmail    String?
+  userName     String?
+  userAvatar   String?
+  userLogin    String?  // GitHub login handle
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+  rawProfile   Json     @default("{}")
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("user_auth")
+}
+
+enum AuthProvider {
+  GOOGLE
+  GITHUB
+  RAILWAY
+
+  @@map("auth_provider")
+}
+
 model Sandbox {
   id          String       @id @default(cuid())
   name        String       @unique

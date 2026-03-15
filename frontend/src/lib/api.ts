@@ -1,10 +1,20 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+const TOKEN_KEY = 'xps_session_token';
+
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options?.headers ? (options.headers as Record<string, string>) : {}),
+  };
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error((error as { error?: string }).error || `HTTP ${res.status}`);
@@ -112,6 +122,32 @@ export const api = {
     getSessions: () =>
       fetchApi<{ sessions: { sessionId: string; createdAt: string; updatedAt: string }[] }>('/api/xps/sessions'),
   },
+
+  // ── Auth ─────────────────────────────────────────────────────────────────────
+  auth: {
+    status: () =>
+      fetchApi<{ authenticated: boolean; accounts: Record<string, unknown> }>('/api/auth/status'),
+    googleUrl: () =>
+      fetchApi<{ url: string }>('/api/auth/google/url'),
+    githubUrl: () =>
+      fetchApi<{ url: string }>('/api/auth/github/url'),
+    railwayToken: (token: string) =>
+      fetchApi<{ success: boolean; token: string; user: Record<string, string>; message: string }>('/api/auth/railway', {
+        method: 'POST', body: JSON.stringify({ token }),
+      }),
+    logout: (provider?: string) =>
+      fetchApi<{ success: boolean }>('/api/auth/logout', {
+        method: 'POST', body: JSON.stringify({ provider }),
+      }),
+    verify: (token: string) =>
+      fetchApi<{ valid: boolean; payload: Record<string, unknown> }>('/api/auth/verify', {
+        method: 'POST', body: JSON.stringify({ token }),
+      }),
+  },
+
+  // ── Leads Stats ──────────────────────────────────────────────────────────────
+  leadStats: () =>
+    fetchApi<{ total: number; byStatus: Record<string, number>; avgScore: number; topSources: string[] }>('/api/leads/stats'),
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
