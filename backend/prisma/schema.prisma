@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  company   String?
+  phone     String?
+  website   String?
+  source    String?
+  status    LeadStatus @default(NEW)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("leads")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+
+  @@map("lead_status")
+}
+
+model ScrapingJob {
+  id          String         @id @default(cuid())
+  source      String
+  status      ScrapingStatus @default(PENDING)
+  results     Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@map("scraping_jobs")
+}
+
+enum ScrapingStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+
+  @@map("scraping_status")
+}
+
+model AgentSession {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  messages  Json     @default("[]")
+  context   Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("agent_sessions")
+}
+
+model Connector {
+  id          String          @id @default(cuid())
+  type        ConnectorType
+  name        String
+  config      Json            @default("{}")
+  status      ConnectorStatus @default(DISCONNECTED)
+  lastChecked DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([type])
+  @@map("connectors")
+}
+
+enum ConnectorType {
+  GITHUB
+  RAILWAY
+  GPT
+  GOOGLE
+  XPS
+
+  @@map("connector_type")
+}
+
+enum ConnectorStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+
+  @@map("connector_status")
+}
+
+model AdminConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("admin_config")
+}

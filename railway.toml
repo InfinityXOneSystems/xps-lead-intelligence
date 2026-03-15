@@ -1,0 +1,20 @@
+[build]
+builder = "nixpacks"
+
+[[services]]
+name = "backend"
+source = "backend"
+
+  [services.deploy]
+  startCommand = "npm start"
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3
+
+[[services]]
+name = "frontend"
+source = "frontend"
+
+  [services.deploy]
+  startCommand = "npm start"
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3

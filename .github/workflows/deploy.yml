@@ -1,0 +1,147 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+      - name: Lint Frontend
+        working-directory: frontend
+        run: npm ci && npm run lint
+      - name: Lint Backend
+        working-directory: backend
+        run: npm ci && npm run lint
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Test Backend
+        working-directory: backend
+        run: npm ci && npm test --if-present
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: xps_leads_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Backend
+        working-directory: backend
+        run: npm ci
+      - name: Run Migrations
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/xps_leads_test
+        run: npx prisma migrate deploy
+      - name: Start Backend
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5432/xps_leads_test
+          REDIS_URL: redis://localhost:6379
+          PORT: 4000
+          NODE_ENV: test
+          GROQ_API_KEY: test_key
+          JWT_SECRET: test_secret
+        run: npm start &
+      - name: Install Frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Build Frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+        run: npm run build
+      - name: Start Frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+        run: npm start &
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Run E2E Tests
+        working-directory: e2e
+        env:
+          BASE_URL: http://localhost:3000
+        run: npx playwright test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build Backend
+        working-directory: backend
+        run: npm ci && npm run build
+      - name: Build Frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL || 'http://localhost:4000' }}
+        run: npm ci && npm run build
+
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --detach
