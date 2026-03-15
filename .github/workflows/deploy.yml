@@ -41,9 +41,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Test Backend
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install Backend
         working-directory: backend
-        run: npm ci && npm test --if-present
+        run: npm ci
+      - name: Run Unit Tests
+        working-directory: backend
+        run: npm test
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: backend/coverage/
+          if-no-files-found: ignore
 
   e2e:
     name: E2E Tests

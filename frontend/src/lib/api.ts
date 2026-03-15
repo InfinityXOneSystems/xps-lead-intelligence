@@ -127,12 +127,22 @@ export interface ToolCallResult {
 export interface Lead {
   id: string;
   email: string;
+  ownerName?: string;
+  businessName?: string;
+  businessPhone?: string;
+  businessEmail?: string;
+  businessWebsite?: string;
+  yearsInBusiness?: number;
+  specialities?: string;
   name?: string;
   company?: string;
   phone?: string;
   website?: string;
   source?: string;
+  leadScore: number;
+  scoreGrade?: { label: string; color: string };
   status: 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'CONVERTED';
+  outreachStatus: 'NOT_CONTACTED' | 'EMAIL_SENT' | 'REPLIED' | 'MEETING_SCHEDULED' | 'CLOSED_WON' | 'CLOSED_LOST';
   metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;

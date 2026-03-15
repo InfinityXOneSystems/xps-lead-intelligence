@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, RefreshCw, ChevronDown, ChevronRight, Zap, Terminal } from 'lucide-react';
 import { api, ToolCallResult } from '@/lib/api';
+import { AutoRecommend } from './AutoRecommend';
 import clsx from 'clsx';
 
 interface Message {
@@ -193,6 +194,13 @@ export function AgentChat() {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* AutoRecommend — above input */}
+      <AutoRecommend
+        activeSection="agent"
+        recentMessages={messages.slice(-6).map((m) => m.content)}
+        onSelect={(text) => setInput(text)}
+      />
 
       {/* Input */}
       <div className="px-4 py-4 flex-shrink-0"

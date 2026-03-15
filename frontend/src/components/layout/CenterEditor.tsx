@@ -1,13 +1,17 @@
 'use client';
 
 import { ActiveSection } from './AppLayout';
-import { LeadsDashboard } from '../leads/LeadsDashboard';
+import { LeadsCRM } from '../leads/LeadsCRM';
+import { LiveScraper } from '../leads/LiveScraper';
 import { AgentChat } from '../agent/AgentChat';
 import { AdminSettings } from '../admin/AdminSettings';
 import { DashboardHome } from '../dashboard/DashboardHome';
 import { VisualEditor } from '../editor/VisualEditor';
 import { GitHubPanel } from '../github/GitHubPanel';
 import { SandboxPanel } from '../sandbox/SandboxPanel';
+import { EmailTemplates } from '../email/EmailTemplates';
+import { SocialMediaAgent } from '../social/SocialMediaAgent';
+import { SocialCRM } from '../social/SocialCRM';
 
 interface CenterEditorProps {
   activeSection: ActiveSection;
@@ -16,15 +20,19 @@ interface CenterEditorProps {
 export function CenterEditor({ activeSection }: CenterEditorProps) {
   return (
     <main className="flex-1 overflow-auto" style={{ background: 'var(--bg-deep)' }}>
-      {activeSection === 'dashboard'  && <DashboardHome />}
-      {activeSection === 'leads'      && <LeadsDashboard />}
-      {activeSection === 'agent'      && <AgentChat />}
-      {activeSection === 'analytics'  && <AnalyticsSection />}
-      {activeSection === 'connectors' && <AdminSettings initialTab="connectors" />}
-      {activeSection === 'settings'   && <AdminSettings initialTab="config" />}
-      {activeSection === 'github'     && <GitHubPanel />}
-      {activeSection === 'editor'     && <VisualEditor />}
-      {activeSection === 'sandbox'    && <SandboxPanel />}
+      {activeSection === 'dashboard'   && <DashboardHome />}
+      {activeSection === 'leads'       && <LeadsCRM />}
+      {activeSection === 'scraper'     && <LiveScraper />}
+      {activeSection === 'outreach'    && <EmailTemplates />}
+      {activeSection === 'agent'       && <AgentChat />}
+      {activeSection === 'analytics'   && <AnalyticsSection />}
+      {activeSection === 'social'      && <SocialMediaAgent />}
+      {activeSection === 'social-crm'  && <SocialCRM />}
+      {activeSection === 'connectors'  && <AdminSettings initialTab="connectors" />}
+      {activeSection === 'settings'    && <AdminSettings initialTab="config" />}
+      {activeSection === 'github'      && <GitHubPanel />}
+      {activeSection === 'editor'      && <VisualEditor />}
+      {activeSection === 'sandbox'     && <SandboxPanel />}
     </main>
   );
 }

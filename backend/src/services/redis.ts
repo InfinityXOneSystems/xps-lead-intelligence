@@ -29,7 +29,7 @@ export async function cacheGet(key: string): Promise<string | null> {
     const client = getRedisClient();
     return await client.get(key);
   } catch (err) {
-    console.error('Redis get error:', err);
+    // Redis unavailable — graceful degradation (caller must handle null)
     return null;
   }
 }
@@ -38,8 +38,8 @@ export async function cacheSet(key: string, value: string, ttlSeconds = 300): Pr
   try {
     const client = getRedisClient();
     await client.setex(key, ttlSeconds, value);
-  } catch (err) {
-    console.error('Redis set error:', err);
+  } catch {
+    // Redis unavailable — cache write silently skipped
   }
 }
 
@@ -47,7 +47,7 @@ export async function cacheDel(key: string): Promise<void> {
   try {
     const client = getRedisClient();
     await client.del(key);
-  } catch (err) {
-    console.error('Redis del error:', err);
+  } catch {
+    // Redis unavailable — silently skipped
   }
 }

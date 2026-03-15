@@ -516,6 +516,181 @@ export const ALL_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  // ── Email / Outreach tools ────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'email_send',
+      description: 'Send a real email to a lead via Gmail OAuth2 or SMTP',
+      parameters: {
+        type: 'object',
+        properties: {
+          lead_id: { type: 'string', description: 'Lead ID to send email to' },
+          subject: { type: 'string', description: 'Email subject line' },
+          body_html: { type: 'string', description: 'HTML body of the email' },
+        },
+        required: ['lead_id', 'subject', 'body_html'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'email_send_ai',
+      description: 'Generate and send a personalized AI-written email to a lead',
+      parameters: {
+        type: 'object',
+        properties: {
+          lead_id: { type: 'string', description: 'Lead ID' },
+          purpose: { type: 'string', description: 'What the email is about (e.g. "intro outreach for roofing services")' },
+        },
+        required: ['lead_id', 'purpose'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'email_template_create',
+      description: 'Create a new email template. Use {{businessName}}, {{ownerName}}, etc. as variables',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Template name' },
+          subject: { type: 'string', description: 'Subject with {{variables}}' },
+          body_html: { type: 'string', description: 'HTML body with {{variables}}' },
+          purpose: { type: 'string', description: 'Purpose of the template (e.g. cold-outreach, follow-up)' },
+        },
+        required: ['name', 'subject', 'body_html'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'email_campaign_send',
+      description: 'Send an email campaign to all matching leads',
+      parameters: {
+        type: 'object',
+        properties: {
+          campaign_id: { type: 'string', description: 'Campaign ID to send' },
+        },
+        required: ['campaign_id'],
+      },
+    },
+  },
+  // ── Google / Calendar tools ───────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'google_sheets_export',
+      description: 'Export all leads to a Google Sheets CRM spreadsheet',
+      parameters: {
+        type: 'object',
+        properties: {
+          spreadsheet_id: { type: 'string', description: 'Existing spreadsheet ID to update (optional — creates new if omitted)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calendar_schedule_followup',
+      description: 'Create a Google Calendar follow-up event for a lead',
+      parameters: {
+        type: 'object',
+        properties: {
+          lead_id: { type: 'string', description: 'Lead ID' },
+          title: { type: 'string', description: 'Event title' },
+          scheduled_at: { type: 'string', description: 'ISO 8601 datetime for the event' },
+          description: { type: 'string', description: 'Event description' },
+        },
+        required: ['lead_id', 'title', 'scheduled_at'],
+      },
+    },
+  },
+  // ── Lead scoring tools ────────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'leads_score_all',
+      description: 'Re-score all leads using the multi-factor scoring algorithm',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'leads_export_csv',
+      description: 'Get a CSV download URL for all leads in CRM format',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  // ── Social media tools ────────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'social_generate_post',
+      description: 'Generate social media post content using AI for a given platform and topic',
+      parameters: {
+        type: 'object',
+        properties: {
+          platform: { type: 'string', description: 'Social platform', enum: ['TWITTER', 'LINKEDIN', 'INSTAGRAM', 'FACEBOOK'] },
+          topic: { type: 'string', description: 'What the post is about' },
+          tone: { type: 'string', description: 'Tone of the post (professional, casual, inspirational)' },
+        },
+        required: ['platform', 'topic'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'social_post_publish',
+      description: 'Publish a post to a social media platform immediately',
+      parameters: {
+        type: 'object',
+        properties: {
+          account_id: { type: 'string', description: 'Social account ID (from social_list_accounts)' },
+          content: { type: 'string', description: 'Post content text' },
+        },
+        required: ['account_id', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'social_list_accounts',
+      description: 'List all connected social media accounts',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'social_process_replies',
+      description: 'Process all pending inbound social media messages and send AI auto-replies',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  // ── Parallel scraping ─────────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'leads_scrape_parallel',
+      description: 'Start multiple scraping jobs in parallel. Format: ["yelp:query:location", "yp:query:city"]',
+      parameters: {
+        type: 'object',
+        properties: {
+          sources: { type: 'string', description: 'JSON array of scraping source strings, e.g. ["yelp:roofers:Dallas TX","yp:hvac:Phoenix AZ"]' },
+        },
+        required: ['sources'],
+      },
+    },
+  },
 ];
 
 // ─── Tool executor ─────────────────────────────────────────────────────────────
@@ -861,6 +1036,103 @@ Return ONLY the code, no explanation, no markdown fences.`;
         } catch (err) {
           throw new Error(`Railway deploy failed: ${err instanceof Error ? err.message : String(err)}`);
         }
+        break;
+      }
+
+      // ── Email / Outreach tools ──────────────────────────────────────────
+      case 'email_send': {
+        const { sendEmail } = await import('./email');
+        const lead = await prisma.lead.findUnique({ where: { id: args.lead_id as string } });
+        if (!lead) throw new Error('Lead not found');
+        output = await sendEmail({ to: lead.businessEmail || lead.email, subject: args.subject as string, bodyHtml: args.body_html as string, leadId: lead.id });
+        break;
+      }
+      case 'email_send_ai': {
+        const { generateEmailWithLLM, sendEmail } = await import('./email');
+        const lead = await prisma.lead.findUnique({ where: { id: args.lead_id as string } });
+        if (!lead) throw new Error('Lead not found');
+        const emailData = await generateEmailWithLLM({ businessName: lead.businessName || lead.company || '', ownerName: lead.ownerName || lead.name || '', specialities: lead.specialities || '' }, args.purpose as string);
+        output = await sendEmail({ to: lead.businessEmail || lead.email, ...emailData, leadId: lead.id });
+        break;
+      }
+      case 'email_template_create': {
+        const { stripHtml } = await import('../utils/sanitize');
+        output = await prisma.emailTemplate.create({ data: { name: args.name as string, subject: args.subject as string, bodyHtml: args.body_html as string, bodyText: stripHtml(args.body_html as string), category: args.purpose as string || 'outreach' } });
+        break;
+      }
+      case 'email_campaign_send': {
+        const { sendCampaign } = await import('./email');
+        output = await sendCampaign(args.campaign_id as string);
+        break;
+      }
+
+      // ── Google / Calendar tools ─────────────────────────────────────────
+      case 'google_sheets_export': {
+        const { exportLeadsToSheets } = await import('./google');
+        output = await exportLeadsToSheets(args.spreadsheet_id as string | undefined);
+        break;
+      }
+      case 'calendar_schedule_followup': {
+        const { createCalendarFollowup } = await import('./google');
+        output = await createCalendarFollowup(args.lead_id as string, args.title as string, (args.description as string) || (args.title as string), new Date(args.scheduled_at as string));
+        break;
+      }
+
+      // ── Lead scoring ────────────────────────────────────────────────────
+      case 'leads_score_all': {
+        const { scoreLead } = await import('./lead-scoring');
+        const allLeads = await prisma.lead.findMany();
+        let updated = 0;
+        for (const l of allLeads) {
+          const score = scoreLead({ email: l.email, businessName: l.businessName || undefined, ownerName: l.ownerName || undefined, businessPhone: l.businessPhone || undefined, businessEmail: l.businessEmail || undefined, businessWebsite: l.businessWebsite || undefined, yearsInBusiness: l.yearsInBusiness || undefined, specialities: l.specialities || undefined, source: l.source || '' });
+          await prisma.lead.update({ where: { id: l.id }, data: { leadScore: score.total, leadScoreDetails: score as never } });
+          updated++;
+        }
+        output = { updated, message: `Re-scored ${updated} leads` };
+        break;
+      }
+      case 'leads_export_csv':
+        output = { csvUrl: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/outreach/leads/export/csv`, message: 'CSV export URL' };
+        break;
+
+      // ── Social media tools ──────────────────────────────────────────────
+      case 'social_generate_post': {
+        const { generateSocialContent } = await import('./social-media');
+        output = await generateSocialContent(args.platform as string, args.topic as string, (args.tone as string) || 'professional');
+        break;
+      }
+      case 'social_post_publish': {
+        const account = await prisma.socialAccount.findUnique({ where: { id: args.account_id as string } });
+        if (!account || !account.accessToken) throw new Error('Social account not found or no token');
+        const { twitterPost, linkedinPost } = await import('./social-media');
+        if (account.platform === 'TWITTER') {
+          const r = await twitterPost(account.accessToken, args.content as string);
+          output = await prisma.socialPost.create({ data: { accountId: account.id, content: args.content as string, platform: account.platform, status: 'PUBLISHED', platformPostId: r.id, publishedAt: new Date() } });
+        } else if (account.platform === 'LINKEDIN') {
+          const pd = account.profileData as { urn?: string };
+          const r = await linkedinPost(account.accessToken, pd.urn || '', args.content as string);
+          output = await prisma.socialPost.create({ data: { accountId: account.id, content: args.content as string, platform: account.platform, status: 'PUBLISHED', platformPostId: r.id, publishedAt: new Date() } });
+        } else {
+          throw new Error(`Platform ${account.platform} not yet supported for direct posting via agent`);
+        }
+        break;
+      }
+      case 'social_list_accounts':
+        output = await prisma.socialAccount.findMany({ select: { id: true, platform: true, handle: true, isActive: true, autoPost: true, autoReply: true, _count: { select: { posts: true, inboundMessages: true } } } });
+        break;
+      case 'social_process_replies': {
+        const { processInboundMessages } = await import('./social-media');
+        output = await processInboundMessages();
+        break;
+      }
+
+      // ── Parallel scraping ────────────────────────────────────────────────
+      case 'leads_scrape_parallel': {
+        let sources: string[];
+        try { sources = JSON.parse(args.sources as string); }
+        catch { sources = (args.sources as string).split(',').map((s) => s.trim()); }
+        const jobIds = await Promise.all(sources.map((s) => startScrapingJob(s)));
+        output = { jobIds, message: `${jobIds.length} parallel scraping jobs started` };
         break;
       }
 

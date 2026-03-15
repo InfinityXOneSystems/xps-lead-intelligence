@@ -4,6 +4,7 @@ import { useState } from 'react';
 import {
   LayoutDashboard, Users, Bot, BarChart3, Plug, Settings,
   ChevronLeft, ChevronRight, Github, Code2, Box,
+  Globe, Mail, Share2, MessageSquare,
 } from 'lucide-react';
 import { ActiveSection } from './AppLayout';
 import clsx from 'clsx';
@@ -16,15 +17,19 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'dashboard',  label: 'Dashboard',  icon: <LayoutDashboard className="w-4 h-4" /> },
-  { id: 'leads',      label: 'Leads',      icon: <Users className="w-4 h-4" /> },
-  { id: 'agent',      label: 'Agent',      icon: <Bot className="w-4 h-4" /> },
-  { id: 'analytics',  label: 'Analytics',  icon: <BarChart3 className="w-4 h-4" /> },
-  { id: 'github',     label: 'GitHub',     icon: <Github className="w-4 h-4" />, dividerBefore: true },
-  { id: 'editor',     label: 'AI Editor',  icon: <Code2 className="w-4 h-4" /> },
-  { id: 'sandbox',    label: 'Sandbox',    icon: <Box className="w-4 h-4" /> },
-  { id: 'connectors', label: 'Connectors', icon: <Plug className="w-4 h-4" />, dividerBefore: true },
-  { id: 'settings',   label: 'Settings',   icon: <Settings className="w-4 h-4" /> },
+  { id: 'dashboard',   label: 'Dashboard',      icon: <LayoutDashboard className="w-4 h-4" /> },
+  { id: 'leads',       label: 'Leads CRM',      icon: <Users className="w-4 h-4" /> },
+  { id: 'scraper',     label: 'Live Scraper',   icon: <Globe className="w-4 h-4" /> },
+  { id: 'outreach',    label: 'Email Outreach', icon: <Mail className="w-4 h-4" /> },
+  { id: 'agent',       label: 'Agent',          icon: <Bot className="w-4 h-4" /> },
+  { id: 'analytics',   label: 'Analytics',      icon: <BarChart3 className="w-4 h-4" /> },
+  { id: 'social',      label: 'Social Agent',   icon: <Share2 className="w-4 h-4" />, dividerBefore: true },
+  { id: 'social-crm',  label: 'Social CRM',     icon: <MessageSquare className="w-4 h-4" /> },
+  { id: 'github',      label: 'GitHub',         icon: <Github className="w-4 h-4" />, dividerBefore: true },
+  { id: 'editor',      label: 'AI Editor',      icon: <Code2 className="w-4 h-4" /> },
+  { id: 'sandbox',     label: 'Sandbox',        icon: <Box className="w-4 h-4" /> },
+  { id: 'connectors',  label: 'Connectors',     icon: <Plug className="w-4 h-4" />, dividerBefore: true },
+  { id: 'settings',    label: 'Settings',       icon: <Settings className="w-4 h-4" /> },
 ];
 
 interface LeftSidebarProps {

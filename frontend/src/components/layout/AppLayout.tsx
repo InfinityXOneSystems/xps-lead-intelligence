@@ -10,13 +10,17 @@ import { RightToolbar } from './RightToolbar';
 export type ActiveSection =
   | 'dashboard'
   | 'leads'
+  | 'scraper'
+  | 'outreach'
   | 'agent'
   | 'analytics'
   | 'connectors'
   | 'settings'
   | 'github'
   | 'editor'
-  | 'sandbox';
+  | 'sandbox'
+  | 'social'
+  | 'social-crm';
 
 export function AppLayout() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
