@@ -11,18 +11,39 @@ datasource db {
 }
 
 model Lead {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  company   String?
-  phone     String?
-  website   String?
-  source    String?
-  status    LeadStatus @default(NEW)
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  // Contact identifiers
+  email            String   @unique
+  ownerName        String?
+  // Business CRM fields
+  businessName     String?
+  businessPhone    String?
+  businessEmail    String?
+  businessWebsite  String?
+  yearsInBusiness  Int?
+  specialities     String?
+  // Legacy compat
+  name             String?
+  company          String?
+  phone            String?
+  website          String?
+  source           String?
+  // Lead intelligence
+  leadScore        Int      @default(0)
+  leadScoreDetails Json?
+  // Status / tracking
+  status           LeadStatus @default(NEW)
+  outreachStatus   OutreachStatus @default(NOT_CONTACTED)
+  // Relations
+  emailSends       EmailSend[]
+  calendarEvents   CalendarFollowup[]
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
+  @@index([leadScore])
+  @@index([status])
+  @@index([businessName])
   @@map("leads")
 }
 
@@ -33,6 +54,222 @@ enum LeadStatus {
   CONVERTED
 
   @@map("lead_status")
+}
+
+enum OutreachStatus {
+  NOT_CONTACTED
+  EMAIL_SENT
+  REPLIED
+  MEETING_SCHEDULED
+  CLOSED_WON
+  CLOSED_LOST
+
+  @@map("outreach_status")
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  subject     String
+  bodyHtml    String
+  bodyText    String
+  variables   Json     @default("[]")   // list of {{variable}} placeholders
+  category    String   @default("outreach")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  campaigns   EmailCampaign[]
+
+  @@map("email_templates")
+}
+
+model EmailCampaign {
+  id           String        @id @default(cuid())
+  name         String
+  templateId   String
+  template     EmailTemplate @relation(fields: [templateId], references: [id])
+  status       CampaignStatus @default(DRAFT)
+  leadFilter   Json          @default("{}")
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  sends        EmailSend[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("email_campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PAUSED
+
+  @@map("campaign_status")
+}
+
+model EmailSend {
+  id          String        @id @default(cuid())
+  campaignId  String?
+  campaign    EmailCampaign? @relation(fields: [campaignId], references: [id])
+  leadId      String
+  lead        Lead          @relation(fields: [leadId], references: [id])
+  toEmail     String
+  subject     String
+  status      EmailSendStatus @default(PENDING)
+  messageId   String?
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  repliedAt   DateTime?
+  error       String?
+  sentAt      DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([campaignId])
+  @@map("email_sends")
+}
+
+enum EmailSendStatus {
+  PENDING
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  REPLIED
+  BOUNCED
+  FAILED
+
+  @@map("email_send_status")
+}
+
+model CalendarFollowup {
+  id           String   @id @default(cuid())
+  leadId       String
+  lead         Lead     @relation(fields: [leadId], references: [id])
+  title        String
+  description  String?
+  scheduledAt  DateTime
+  googleEventId String?
+  status       FollowupStatus @default(SCHEDULED)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([leadId])
+  @@map("calendar_followups")
+}
+
+enum FollowupStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+
+  @@map("followup_status")
+}
+
+model SocialAccount {
+  id           String   @id @default(cuid())
+  platform     SocialPlatform
+  handle       String
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+  profileData  Json     @default("{}")
+  isActive     Boolean  @default(true)
+  autoPost     Boolean  @default(false)
+  autoReply    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  posts        SocialPost[]
+  inboundMessages SocialInboundMessage[]
+
+  @@unique([platform])
+  @@map("social_accounts")
+}
+
+enum SocialPlatform {
+  TWITTER
+  LINKEDIN
+  INSTAGRAM
+  FACEBOOK
+  YOUTUBE
+
+  @@map("social_platform")
+}
+
+model SocialPost {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     SocialAccount @relation(fields: [accountId], references: [id])
+  content     String
+  mediaUrls   Json     @default("[]")
+  platform    SocialPlatform
+  status      PostStatus @default(DRAFT)
+  platformPostId String?
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  engagements Json     @default("{}")  // likes, shares, comments, views
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([platform])
+  @@map("social_posts")
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+
+  @@map("post_status")
+}
+
+model SocialInboundMessage {
+  id                String   @id @default(cuid())
+  accountId         String
+  account           SocialAccount @relation(fields: [accountId], references: [id])
+  platform          SocialPlatform
+  platformMessageId String   @unique
+  senderHandle      String
+  senderName        String?
+  content           String
+  mediaUrls         Json     @default("[]")
+  messageType       MessageType @default(DIRECT)
+  isRead            Boolean  @default(false)
+  requiresReply     Boolean  @default(true)
+  autoReplyStatus   AutoReplyStatus @default(PENDING)
+  autoReplySentAt   DateTime?
+  autoReplyContent  String?
+  threadId          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([platform])
+  @@index([threadId])
+  @@map("social_inbound_messages")
+}
+
+enum MessageType {
+  DIRECT
+  MENTION
+  COMMENT
+  REPLY
+
+  @@map("message_type")
+}
+
+enum AutoReplyStatus {
+  PENDING
+  SENT
+  SKIPPED
+  FAILED
+
+  @@map("auto_reply_status")
 }
 
 model ScrapingJob {
