@@ -78,8 +78,12 @@ jobs:
 
       - name: Validate Database Schema
         working-directory: backend
+        # DATABASE_URL is required by Prisma's config parser even for syntax-only
+        # validation — a dummy DSN satisfies the env check without a real DB.
+        env:
+          DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci_validate"
         run: npx prisma validate
-        # Confirms Prisma schema is syntactically valid
+        # Confirms Prisma schema is syntactically valid (no live DB required)
 
       - name: Validate Required Service Files
         run: |
