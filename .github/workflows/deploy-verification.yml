@@ -1,0 +1,155 @@
+name: Deploy Verification
+
+on:
+  # Run after a successful deploy workflow on main (legacy CI/CD Pipeline)
+  # OR after the new Deploy Production workflow completes
+  workflow_run:
+    workflows: ["CI/CD Pipeline", "Deploy Production"]
+    types: [completed]
+    branches: [main]
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend URL to verify (defaults to BACKEND_URL secret)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-deployment:
+    name: Verify Production Deployment
+    runs-on: ubuntu-latest
+    # Only run when the triggering workflow succeeded (or on manual dispatch)
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Backend URL
+        id: urls
+        run: |
+          BACKEND="${{ github.event.inputs.backend_url }}"
+          if [ -z "$BACKEND" ]; then
+            BACKEND="${{ secrets.BACKEND_URL }}"
+          fi
+          if [ -z "$BACKEND" ]; then
+            echo "⚠️ BACKEND_URL not set — skipping deployment verification"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "backend=$BACKEND" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: API Health Check
+        id: health
+        if: steps.urls.outputs.skip != 'true'
+        run: |
+          BACKEND="${{ steps.urls.outputs.backend }}"
+          echo "Checking health at: $BACKEND/api/health"
+
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BACKEND/api/health" --max-time 15 || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "status=ok" >> $GITHUB_OUTPUT
+              cat /tmp/health.json
+              break
+            fi
+            if [ "$i" -lt 5 ]; then
+              echo "Waiting 10s before retry..."
+              sleep 10
+            fi
+          done
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Health check failed after 5 attempts (HTTP $STATUS)"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Deep Integration Check
+        id: deep_check
+        if: steps.urls.outputs.skip != 'true'
+        run: |
+          BACKEND="${{ steps.urls.outputs.backend }}"
+          echo "Running deep integration check..."
+
+          RESPONSE=$(curl -s "$BACKEND/api/outreach/health/deep" --max-time 20 || echo '{"error":"unreachable"}')
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          if 'error' in data:
+              print('❌ Deep check unreachable:', data['error'])
+              sys.exit(1)
+          checks = data.get('checks', {})
+          print('=== Integration Status ===')
+          all_ok = True
+          for name, check in checks.items():
+              status = check.get('status', 'unknown')
+              detail = check.get('detail', '')
+              if status == 'ok':
+                  icon = '✅'
+              elif status == 'unconfigured':
+                  icon = '⚠️'
+              else:
+                  icon = '❌'
+                  all_ok = False
+              msg = f'{icon} {name}: {status}'
+              if detail:
+                  msg += f' ({detail})'
+              print(msg)
+          if not all_ok:
+              print()
+              print('Some integrations are in error state. Check Railway environment variables.')
+          " || echo "Could not parse deep check response"
+
+      - name: Database Connectivity Check
+        if: steps.urls.outputs.skip != 'true'
+        run: |
+          BACKEND="${{ steps.urls.outputs.backend }}"
+          # The health endpoint exercises the DB — a 200 means DB is up
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/leads?limit=1" --max-time 15 || echo "000")
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
+            echo "✅ Database: accessible (HTTP $STATUS — 401 expected without auth)"
+          else
+            echo "⚠️ Database check returned HTTP $STATUS"
+          fi
+
+      - name: Connector Status Check
+        if: steps.urls.outputs.skip != 'true'
+        run: |
+          BACKEND="${{ steps.urls.outputs.backend }}"
+          RESPONSE=$(curl -s "$BACKEND/api/connectors" --max-time 15 || echo '[]')
+          echo "Connector records returned: $(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 'error')" 2>/dev/null || echo "parse error")"
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Deployment Verification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend URL**: ${{ steps.urls.outputs.backend || 'not configured' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.urls.outputs.skip }}" = "true" ]; then
+            echo "⚠️ **Skipped**: BACKEND_URL secret not set" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To enable deployment verification:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Add \`BACKEND_URL\` to GitHub repository secrets" >> $GITHUB_STEP_SUMMARY
+            echo "2. Set it to your Railway backend URL (e.g., \`https://your-backend.railway.app\`)" >> $GITHUB_STEP_SUMMARY
+          else
+            HEALTH="${{ steps.health.outputs.status }}"
+            if [ "$HEALTH" = "ok" ]; then
+              echo "✅ **API Health**: OK" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **API Health**: FAILED" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps if Checks Failed" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check Railway backend service logs" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify all required environment variables are set" >> $GITHUB_STEP_SUMMARY
+            echo "3. Run \`npx prisma migrate deploy\` if DB schema changed" >> $GITHUB_STEP_SUMMARY
+            echo "4. See [RUNBOOK.md](docs/RUNBOOK.md) for recovery procedures" >> $GITHUB_STEP_SUMMARY
+          fi

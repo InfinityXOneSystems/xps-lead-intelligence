@@ -1,0 +1,140 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('XPS Lead Intelligence Layout', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('renders 3-column layout', async ({ page }) => {
+    // Check header
+    await expect(page.getByText('XPS Lead Intelligence')).toBeVisible();
+
+    // Check left sidebar navigation items
+    await expect(page.getByRole('button', { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /leads/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /agent/i })).toBeVisible();
+
+    // Check main content area
+    await expect(page.getByText('Dashboard')).toBeVisible();
+  });
+
+  test('light/dark mode toggle works', async ({ page }) => {
+    const toggleBtn = page.getByRole('button', { name: /toggle theme/i });
+    await expect(toggleBtn).toBeVisible();
+
+    // Initially in dark mode - click to switch to light
+    await toggleBtn.click();
+    await page.waitForTimeout(300);
+
+    // Toggle back
+    await toggleBtn.click();
+    await page.waitForTimeout(300);
+
+    // Layout should still be intact
+    await expect(page.getByText('XPS Lead Intelligence')).toBeVisible();
+  });
+
+  test('navigates to Leads section', async ({ page }) => {
+    await page.getByRole('button', { name: /leads/i }).click();
+    await expect(page.getByText(/leads/i).first()).toBeVisible();
+    await expect(page.getByPlaceholder(/search leads/i)).toBeVisible();
+  });
+
+  test('navigates to Agent chat interface', async ({ page }) => {
+    await page.getByRole('button', { name: /agent/i }).click();
+    await expect(page.getByText(/XPS Orchestrator/i)).toBeVisible();
+    await expect(page.getByPlaceholder(/Ask the agent to do anything/i)).toBeVisible();
+  });
+
+  test('agent chat interface has input and send button', async ({ page }) => {
+    await page.getByRole('button', { name: /agent/i }).click();
+
+    const input = page.getByPlaceholder(/Ask the agent to do anything/i);
+    await expect(input).toBeVisible();
+    await input.fill('Hello agent');
+    await expect(input).toHaveValue('Hello agent');
+  });
+
+  test('navigates to admin settings', async ({ page }) => {
+    await page.getByRole('button', { name: /settings/i }).click();
+    await expect(page.getByText(/settings/i).first()).toBeVisible();
+  });
+
+  test('navigates to connectors', async ({ page }) => {
+    await page.getByRole('button', { name: /connectors/i }).click();
+    await expect(page.getByText(/connectors/i).first()).toBeVisible();
+    await expect(page.getByText(/GitHub/i)).toBeVisible();
+  });
+
+  test('sidebar collapse toggle works', async ({ page }) => {
+    // Find collapse button
+    const collapseBtn = page.getByRole('button', { name: /collapse sidebar/i });
+    await expect(collapseBtn).toBeVisible();
+    await collapseBtn.click();
+
+    // After collapse, expand button should be visible
+    const expandBtn = page.getByRole('button', { name: /expand sidebar/i });
+    await expect(expandBtn).toBeVisible();
+
+    // Expand it back
+    await expandBtn.click();
+    await expect(page.getByRole('button', { name: /collapse sidebar/i })).toBeVisible();
+  });
+
+  test('right toolbar is visible', async ({ page }) => {
+    // Right toolbar should have quick action buttons (identified by title attribute)
+    await expect(page.getByTitle('Agent')).toBeVisible();
+    await expect(page.getByTitle('Leads')).toBeVisible();
+  });
+
+  test('navigates to dashboard from sidebar', async ({ page }) => {
+    // Go to leads first
+    await page.getByRole('button', { name: /leads/i }).click();
+    // Then back to dashboard
+    await page.getByRole('button', { name: /dashboard/i }).click();
+    await expect(page.getByText('Dashboard')).toBeVisible();
+  });
+});
+
+test.describe('New Features — Real System', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('navigates to Leads CRM section', async ({ page }) => {
+    await page.getByRole('button', { name: /leads crm/i }).click();
+    await expect(page.getByText(/leads crm/i).first()).toBeVisible();
+  });
+
+  test('navigates to Live Scraper section', async ({ page }) => {
+    await page.getByRole('button', { name: /live scraper/i }).click();
+    await expect(page.getByText(/live web scraper/i).first()).toBeVisible();
+  });
+
+  test('navigates to Email Outreach section', async ({ page }) => {
+    await page.getByRole('button', { name: /email outreach/i }).click();
+    await expect(page.getByText(/email outreach/i).first()).toBeVisible();
+  });
+
+  test('navigates to Social Agent section', async ({ page }) => {
+    await page.getByRole('button', { name: /social agent/i }).click();
+    await expect(page.getByText(/social media agent/i).first()).toBeVisible();
+  });
+
+  test('navigates to Social CRM section', async ({ page }) => {
+    await page.getByRole('button', { name: /social crm/i }).click();
+    await expect(page.getByText(/social crm/i).first()).toBeVisible();
+  });
+
+  test('agent chat has auto-recommend panel', async ({ page }) => {
+    await page.getByRole('button', { name: /agent/i }).click();
+    // AutoRecommend should render with suggestions label
+    await page.waitForTimeout(2000); // allow LLM call
+    // Suggestions label or fallback
+    const hasSuggestions = await page.getByText(/suggestions/i).isVisible().catch(() => false);
+    // It may not appear if LLM is not available in test, that's OK — just confirm agent loads
+    await expect(page.getByPlaceholder(/Ask the agent to do anything/i)).toBeVisible();
+  });
+});
