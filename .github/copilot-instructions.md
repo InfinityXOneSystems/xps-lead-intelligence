@@ -12,7 +12,7 @@ For the full agent architecture, see: [`AGENTS.md`](../AGENTS.md)
 
 **Backend**: Express.js + TypeScript 5 + Prisma + PostgreSQL + Redis  
 **Frontend**: Next.js 15 App Router + TypeScript + Tailwind CSS + React  
-**AI**: Groq LLM (llama-3.1-70b-versatile) + 30+ tool-calling agent  
+**AI**: Groq LLM (llama3-8b-8192 backend default, llama3-70b-8192 for codegen) + 30+ tool-calling agent  
 **Auth**: OAuth (Google / GitHub / Railway) + JWT  
 **Deployment**: Railway (backend + frontend services)  
 **Agents**: CCP → Kernel → Worker (Redis queues) → Orchestrator  
