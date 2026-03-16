@@ -1,9 +1,10 @@
 name: Deploy Verification
 
 on:
-  # Run after a successful deploy workflow on main
+  # Run after a successful deploy workflow on main (legacy CI/CD Pipeline)
+  # OR after the new Deploy Production workflow completes
   workflow_run:
-    workflows: ["CI/CD Pipeline"]
+    workflows: ["CI/CD Pipeline", "Deploy Production"]
     types: [completed]
     branches: [main]
   # Allow manual trigger

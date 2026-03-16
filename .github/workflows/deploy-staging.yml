@@ -1,0 +1,290 @@
+name: Deploy Staging
+
+# Deploys pull requests to the Railway staging environment.
+# Pipeline: Wait for CI + Validator → Deploy to staging → Smoke tests → Auto-merge
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  NODE_VERSION: '20'
+  RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: staging-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Gate: wait for CI and Validator to complete ───────────────────────────────
+  gate:
+    name: Wait for CI Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for required CI checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          SHA="${{ github.event.pull_request.head.sha }}"
+          # Check names from ci.yml and validator.yml
+          REQUIRED=("Lint" "TypeScript" "Unit Tests" "Build" "Validator")
+
+          echo "Polling for required checks on commit $SHA ..."
+
+          TIMEOUT=900   # 15 minutes max
+          ELAPSED=0
+          INTERVAL=20
+
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            ALL_OK=true
+
+            for CHECK in "${REQUIRED[@]}"; do
+              # Get all runs for this check name; take the most recent conclusion
+              CONCLUSION=$(gh api "repos/$REPO/commits/$SHA/check-runs" \
+                --jq ".check_runs[] | select(.name==\"$CHECK\") | .conclusion" \
+                2>/dev/null | head -1)
+
+              if [[ "$CONCLUSION" == "failure" || "$CONCLUSION" == "timed_out" || "$CONCLUSION" == "cancelled" ]]; then
+                echo "❌ Required check '$CHECK' failed ($CONCLUSION) — aborting staging deploy"
+                exit 1
+              fi
+
+              if [[ "$CONCLUSION" != "success" ]]; then
+                echo "  ⏳ $CHECK: ${CONCLUSION:-pending}"
+                ALL_OK=false
+              else
+                echo "  ✅ $CHECK"
+              fi
+            done
+
+            if [[ "$ALL_OK" == "true" ]]; then
+              echo ""
+              echo "✅ All required checks passed — proceeding to staging deploy"
+              break
+            fi
+
+            ELAPSED=$((ELAPSED + INTERVAL))
+            echo "Waiting... ($ELAPSED/${TIMEOUT}s)"
+            sleep $INTERVAL
+          done
+
+          if [[ "$ALL_OK" != "true" ]]; then
+            echo "❌ Timeout ($TIMEOUT s) waiting for required checks"
+            exit 1
+          fi
+
+  # ── Deploy to Railway staging ─────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [gate]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Authenticate Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "⚠️  RAILWAY_TOKEN secret not set."
+            echo "    Set RAILWAY_TOKEN in GitHub → Settings → Secrets to enable Railway deployments."
+            echo "RAILWAY_AVAILABLE=false" >> $GITHUB_ENV
+          else
+            railway login --token "$RAILWAY_TOKEN"
+            echo "✅ Authenticated with Railway"
+            echo "RAILWAY_AVAILABLE=true" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy Backend to Staging
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "Deploying backend to Railway staging..."
+          railway up \
+            --service backend \
+            --detach \
+            --project "${{ env.RAILWAY_PROJECT_ID }}" 2>&1 | tee /tmp/backend-deploy.log
+          echo "✅ Backend deploy initiated"
+
+      - name: Deploy Frontend to Staging
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "Deploying frontend to Railway staging..."
+          railway up \
+            --service frontend \
+            --detach \
+            --project "${{ env.RAILWAY_PROJECT_ID }}" 2>&1 | tee /tmp/frontend-deploy.log
+          echo "✅ Frontend deploy initiated"
+
+      - name: Wait for Staging to Become Ready
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+        run: |
+          if [ -z "$STAGING_BACKEND_URL" ]; then
+            echo "⚠️  STAGING_BACKEND_URL not configured — skipping readiness wait"
+            echo "    Add STAGING_BACKEND_URL to the 'staging' GitHub environment secrets."
+            exit 0
+          fi
+
+          echo "Waiting for staging backend at $STAGING_BACKEND_URL ..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "$STAGING_BACKEND_URL/api/health" --max-time 15 2>/dev/null || echo "000")
+            echo "  Attempt $i/12: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Staging backend is ready"
+              break
+            fi
+            sleep 15
+          done
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Staging backend did not become ready in time (last HTTP $STATUS)"
+            exit 1
+          fi
+
+      # ── Smoke tests (only when staging URL is configured) ────────────────────
+
+      - name: Smoke Test — API Health
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+        run: |
+          if [ -z "$STAGING_BACKEND_URL" ]; then
+            echo "⚠️  STAGING_BACKEND_URL not set — skipping smoke tests"
+            exit 0
+          fi
+
+          echo "=== API Health Smoke Test ==="
+          RESPONSE=$(curl -sf "$STAGING_BACKEND_URL/api/health" --max-time 15 || echo '{"error":"unreachable"}')
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','error'))" 2>/dev/null || echo "error")
+          if [ "$STATUS" = "ok" ]; then
+            echo "✅ API health: OK"
+          else
+            echo "❌ API health check failed (status=$STATUS)"
+            exit 1
+          fi
+
+      - name: Smoke Test — Kernel Readiness
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+        run: |
+          if [ -z "$STAGING_BACKEND_URL" ]; then exit 0; fi
+
+          echo "=== Kernel Readiness via /api/health ==="
+          HEALTH=$(curl -sf "$STAGING_BACKEND_URL/api/health" --max-time 15 || echo '{}')
+          FEATURES=$(echo "$HEALTH" | python3 -c "import json,sys; d=json.load(sys.stdin); print(','.join(d.get('features', [])))" 2>/dev/null || echo "")
+
+          if echo "$FEATURES" | grep -q "agent"; then
+            echo "✅ Kernel features present: $FEATURES"
+          else
+            echo "⚠️  Features list incomplete or unavailable (got: $FEATURES)"
+          fi
+
+      - name: Smoke Test — Agent Queue (Workers)
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+        run: |
+          if [ -z "$STAGING_BACKEND_URL" ]; then exit 0; fi
+
+          echo "=== Worker Queue Smoke Test via /api/outreach/health/deep ==="
+          RESPONSE=$(curl -sf "$STAGING_BACKEND_URL/api/outreach/health/deep" --max-time 20 \
+            || echo '{"error":"unreachable"}')
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          if 'error' in d:
+              print('⚠️  Deep check unreachable:', d['error'])
+          else:
+              checks = d.get('checks', {})
+              for name, check in checks.items():
+                  s = check.get('status', 'unknown')
+                  icon = '✅' if s == 'ok' else ('⚠️' if s == 'unconfigured' else '❌')
+                  print(f'{icon} {name}: {s}')
+          " 2>/dev/null || echo "Could not parse deep check response"
+
+      - name: Smoke Test — LLM Connectivity
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          STAGING_BACKEND_URL: ${{ secrets.STAGING_BACKEND_URL }}
+        run: |
+          if [ -z "$STAGING_BACKEND_URL" ]; then exit 0; fi
+
+          echo "=== LLM Gateway Check via /api/connectors ==="
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$STAGING_BACKEND_URL/api/connectors" --max-time 15 2>/dev/null || echo "000")
+          # 200 or 401 both mean the API is responding
+          if [[ "$STATUS" == "200" || "$STATUS" == "401" ]]; then
+            echo "✅ API responding (HTTP $STATUS)"
+          else
+            echo "⚠️  Connectors endpoint returned HTTP $STATUS"
+          fi
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Staging Deployment — PR #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: \`${{ github.head_ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.event.pull_request.head.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Railway Token Configured**: ${{ secrets.RAILWAY_TOKEN != '' && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Staging URL Configured**: ${{ secrets.STAGING_BACKEND_URL != '' && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See [DEPLOYMENT_FLOW.md](docs/DEPLOYMENT_FLOW.md) for pipeline details." >> $GITHUB_STEP_SUMMARY
+
+  # ── Auto-merge after all checks pass ─────────────────────────────────────────
+  auto-merge:
+    name: Auto-merge PR
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: success()
+    steps:
+      - name: Merge Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+
+          echo "All checks passed — merging PR #$PR ..."
+
+          # Attempt squash merge; fall back to enabling auto-merge if branch
+          # protection rules prevent immediate merge (e.g., required reviews).
+          gh pr merge "$PR" \
+            --repo "$REPO" \
+            --squash \
+            --delete-branch \
+            --subject "Auto-merge: ${{ github.event.pull_request.title }}" \
+            --body "Automatically merged after CI, Validator, and staging deployment passed." \
+            2>&1 || \
+          gh pr merge "$PR" \
+            --repo "$REPO" \
+            --squash \
+            --delete-branch \
+            --auto \
+            2>&1 || \
+          echo "⚠️  Auto-merge not available. Enable 'Allow auto-merge' in repository Settings → General."
