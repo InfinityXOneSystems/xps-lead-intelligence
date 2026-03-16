@@ -1,0 +1,38 @@
+# Railway Project: Lead Intelligence
+# Project ID: 0361239a-54f7-4db8-8350-d7931d2b9260
+# https://railway.app/project/0361239a-54f7-4db8-8350-d7931d2b9260
+
+[build]
+builder = "nixpacks"
+
+[[services]]
+name = "backend"
+source = "backend"
+
+  [services.build]
+  buildCommand = "npm ci && npm run build && npx prisma generate"
+
+  [services.deploy]
+  startCommand = "npm start"
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3
+
+  [services.variables]
+  PORT = "4000"
+  NODE_ENV = "production"
+
+[[services]]
+name = "frontend"
+source = "frontend"
+
+  [services.build]
+  buildCommand = "npm ci && npm run build"
+
+  [services.deploy]
+  startCommand = "npm start"
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 3
+
+  [services.variables]
+  PORT = "3000"
+  NODE_ENV = "production"

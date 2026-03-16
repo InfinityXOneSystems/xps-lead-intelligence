@@ -1,0 +1,60 @@
+name: Auto-Connect Health Check
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health-check:
+    name: Deep Health Check + Auto-Connect
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Backend Health
+        id: backend_health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ secrets.BACKEND_URL || 'http://localhost:4000' }}/api/health" --max-time 10 || echo "000")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Backend healthy"
+          else
+            echo "❌ Backend unreachable (HTTP $STATUS)"
+          fi
+
+      - name: Deep Integration Check
+        id: deep_check
+        run: |
+          RESPONSE=$(curl -s "${{ secrets.BACKEND_URL || 'http://localhost:4000' }}/api/outreach/health/deep" --max-time 15 || echo "{}")
+          echo "response=$RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          checks = data.get('checks', {})
+          print('=== Integration Status ===')
+          for name, check in checks.items():
+              status = check.get('status', 'unknown')
+              detail = check.get('detail', '')
+              icon = '✅' if status == 'ok' else '⚠️' if status == 'unconfigured' else '❌'
+              print(f'{icon} {name}: {status}' + (f' ({detail})' if detail else ''))
+          " || echo "Could not parse response"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Health Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Timestamp: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- Backend HTTP: ${{ steps.backend_health.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] DATABASE: Set DATABASE_URL in Railway" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] LLM: Set GROQ_API_KEY in Railway" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] EMAIL: Set GMAIL_USER + GOOGLE_REFRESH_TOKEN or SMTP_* vars" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] GOOGLE: Set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] GITHUB: Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] RAILWAY: Set RAILWAY_TOKEN" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] SOCIAL: Connect accounts via Social Agent → Settings" >> $GITHUB_STEP_SUMMARY
