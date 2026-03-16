@@ -40,8 +40,8 @@ cd e2e && npx playwright test
 
 **Verify with:**
 ```bash
-cd backend && npm test        # All tests pass
-GET /api/health               # Returns 200 { status: "ok" }
+cd backend && npm test                            # All tests pass
+curl -sS http://localhost:4000/api/health         # Returns 200 { "status": "ok" }
 ```
 
 ---
