@@ -28,7 +28,7 @@ export async function cacheGet(key: string): Promise<string | null> {
   try {
     const client = getRedisClient();
     return await client.get(key);
-  } catch (err) {
+  } catch (_err) {
     // Redis unavailable — graceful degradation (caller must handle null)
     return null;
   }

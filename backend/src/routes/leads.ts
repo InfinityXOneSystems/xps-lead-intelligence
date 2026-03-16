@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { startScrapingJob } from '../services/scraper';
 import { scoreLead, getScoreGrade } from '../services/lead-scoring';

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Globe, Play, StopCircle, RefreshCw, Zap, Eye,
   CheckCircle2, XCircle, Clock, Download,
@@ -36,13 +36,13 @@ export function LiveScraper() {
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-  const loadJobs = async () => {
+  const loadJobs = useCallback(async () => {
     try {
       const r = await fetch(`${API}/api/leads/jobs/list?limit=30`);
       const data = await r.json() as { jobs: ScrapingJob[] };
       setJobs(data.jobs || []);
     } finally { setLoading(false); }
-  };
+  }, [API]);
 
   useEffect(() => {
     loadJobs();
@@ -51,7 +51,7 @@ export function LiveScraper() {
       loadJobs();
     }, 3000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
+  }, [loadJobs]);
 
   const launchScrape = async () => {
     const allSources = [

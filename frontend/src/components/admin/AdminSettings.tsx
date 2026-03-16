@@ -5,6 +5,7 @@
  * When accounts are connected, platform features auto-activate.
  */
 import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import {
   Save, CheckCircle, XCircle, Loader2, LogIn, LogOut,
   Chrome, Github, Zap, AlertCircle, RefreshCw, ExternalLink,
@@ -84,7 +85,7 @@ function AccountCard({
             </div>
             {connected && (info.userName || info.userEmail) ? (
               <div className="flex items-center gap-2 mt-0.5">
-                {info.userAvatar && <img src={info.userAvatar} alt="" className="w-4 h-4 rounded-full" />}
+                {info.userAvatar && <Image src={info.userAvatar} alt="" width={16} height={16} className="rounded-full" />}
                 <p className="text-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>
                   {info.userName}{info.userLogin ? ` (@${info.userLogin})` : ''}{info.userEmail ? ` · ${info.userEmail}` : ''}
                 </p>

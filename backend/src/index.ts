@@ -40,9 +40,9 @@ app.use('/api/social', socialRouter);
 app.use('/api/outreach', outreachRouter);
 app.use('/api/auth', authRouter);
 
-// Convenience aliases matching the platform API contract
-// Canonical paths above; these aliases maintain compatibility with external integrations.
-// TODO (deprecation): prefer canonical paths above for new integrations.
+// Convenience aliases matching the platform API contract (canonical paths above).
+// Deprecation target: v3.0 — external integrations should migrate to canonical paths.
+// See docs/DEPLOYMENT_FLOW.md for migration timeline.
 app.use('/api/chat', agentRouter);        // /api/chat → agent chat (canonical: /api/agent)
 app.use('/api/scrape', leadsRouter);      // /api/scrape → leads scraper (canonical: /api/leads/scrape)
 app.use('/api/agents', agentRouter);      // /api/agents → agent runtime (canonical: /api/agent)

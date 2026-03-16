@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../db/prisma';
 import { sendEmail, sendCampaign, generateEmailWithLLM, renderTemplate } from '../services/email';
