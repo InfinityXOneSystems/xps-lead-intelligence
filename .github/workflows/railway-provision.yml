@@ -1,0 +1,103 @@
+# TAP Protocol: Policy > Authority > Truth
+# GitHub Actions workflow: Railway Provisioning (manual trigger)
+# Secrets must be supplied via GitHub Secrets — never committed to the repository.
+# See docs/RAILWAY_SETUP.md for full setup instructions.
+#
+# Before running: ensure RAILWAY_TOKEN is set in repository secrets.
+# GitHub → Settings → Secrets and variables → Actions → New repository secret
+
+name: Railway Provisioning
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: "Railway project name (default: Lead Intelligence)"
+        required: false
+        default: "Lead Intelligence"
+      backend_service_name:
+        description: "Backend service name (default: backend)"
+        required: false
+        default: "backend"
+      frontend_service_name:
+        description: "Frontend service name (default: frontend)"
+        required: false
+        default: "frontend"
+      postgres_service_name:
+        description: "Postgres service name (default: Postgres-rF1T)"
+        required: false
+        default: "Postgres-rF1T"
+      redis_service_name:
+        description: "Redis service name (default: Redis-rF1T)"
+        required: false
+        default: "Redis-rF1T"
+
+jobs:
+  provision:
+    name: Provision Railway Infrastructure
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # REQUIRED: RAILWAY_TOKEN must be configured as a repository secret before
+    # running this workflow. See docs/RAILWAY_SETUP.md.
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      PROJECT_NAME: ${{ github.event.inputs.project_name }}
+      BACKEND_SERVICE_NAME: ${{ github.event.inputs.backend_service_name }}
+      FRONTEND_SERVICE_NAME: ${{ github.event.inputs.frontend_service_name }}
+      POSTGRES_SERVICE_NAME: ${{ github.event.inputs.postgres_service_name }}
+      REDIS_SERVICE_NAME: ${{ github.event.inputs.redis_service_name }}
+
+    steps:
+      - name: Validate RAILWAY_TOKEN is configured
+        run: |
+          if [[ -z "${RAILWAY_TOKEN}" ]]; then
+            echo "::error::RAILWAY_TOKEN secret is not configured. Add it under:"
+            echo "::error::GitHub → Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          echo "RAILWAY_TOKEN is present (value masked)."
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for railway CLI install)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli --silent
+
+      - name: Make provision script executable
+        run: chmod +x scripts/railway_provision.sh
+
+      - name: Run Railway provisioning script
+        run: ./scripts/railway_provision.sh
+        # Secrets are injected via env above; the script masks their values in logs.
+
+      - name: Write step summary
+        if: always()
+        run: |
+          echo "## Railway Provisioning" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Provisioning workflow completed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next steps for maintainers" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check the job logs above for the list of GitHub Secrets to create." >> $GITHUB_STEP_SUMMARY
+          echo "2. Navigate to: **GitHub → Settings → Secrets and variables → Actions**" >> $GITHUB_STEP_SUMMARY
+          echo "3. Create the following secrets (names only — values from Railway dashboard):" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`RAILWAY_TOKEN\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`RAILWAY_PROJECT_ID\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`VALIDATOR_DATABASE_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`VALIDATOR_REDIS_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`BACKEND_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`FRONTEND_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`NEXT_PUBLIC_API_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`JWT_SECRET\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - \`GROQ_API_KEY\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See [docs/RAILWAY_SETUP.md](docs/RAILWAY_SETUP.md) for full instructions." >> $GITHUB_STEP_SUMMARY
