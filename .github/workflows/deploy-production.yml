@@ -1,0 +1,71 @@
+# TAP Protocol: Policy > Authority > Truth
+# Deploy to Production workflow for xps-lead-intelligence.
+# Secrets must be supplied via GitHub Secrets — never committed to the repository.
+#
+# Required secrets (see docs/RAILWAY_SETUP.md for full list and setup instructions):
+#   RAILWAY_TOKEN            — Railway API token
+#   RAILWAY_PROJECT_ID       — Railway project UUID
+#   VALIDATOR_DATABASE_URL   — Real PostgreSQL connection string for CI validation
+#   VALIDATOR_REDIS_URL      — Real Redis connection string for CI validation
+#   BACKEND_URL              — Public backend URL
+#   FRONTEND_URL             — Public frontend URL
+#   NEXT_PUBLIC_API_URL      — Same as BACKEND_URL
+#   JWT_SECRET               — JWT signing secret
+#   GROQ_API_KEY             — Groq API key
+#
+# Networking note: VALIDATOR_DATABASE_URL must use the Railway public hostname
+# when running on GitHub-hosted runners (ubuntu-latest). Internal Railway hostnames
+# (*.railway.internal) are only reachable from self-hosted runners inside Railway's
+# private network. See docs/RAILWAY_SETUP.md for details.
+#
+# To use a self-hosted runner with Railway internal networking, change:
+#   runs-on: ubuntu-latest
+# to:
+#   runs-on: [self-hosted, railway-runner]
+#
+# Full setup guide: docs/RAILWAY_SETUP.md
+
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli --silent
+
+      - name: Deploy backend to production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "Deploying backend service to Railway production..."
+          railway up --service backend --detach
+        # See docs/RAILWAY_SETUP.md for required secrets setup
+
+      - name: Deploy frontend to production
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+        run: |
+          echo "Deploying frontend service to Railway production..."
+          railway up --service frontend --detach
+        # See docs/RAILWAY_SETUP.md for required secrets setup
