@@ -1,218 +1,196 @@
-# Validator CI Setup Guide
+# Validator Workflow — Setup Guide
 
-This document describes how to configure GitHub repository secrets and runner
-networking so the **Validator** workflow
-(`.github/workflows/validator.yml`) can connect to the real Railway PostgreSQL
-database instead of a dummy DSN.
-
----
-
-## Overview
-
-The Validator workflow now uses **real Railway Postgres** for:
-
-- `npx prisma validate` — validates the schema against a live database
-- `npm test` — integration/unit tests that may need `DATABASE_URL`
-
-No dummy DSNs are committed to the repository. All credentials are injected
-exclusively through GitHub Actions secrets at runtime.
+This document explains how to configure the **Validator** GitHub Actions workflow
+(`.github/workflows/validator.yml`) to connect to the real Railway Postgres
+service (**postgres-rf1t**) and optionally Redis.
 
 ---
 
-## Required GitHub Secrets
+## Table of Contents
 
-Create the following secrets in
-**GitHub → Repository Settings → Secrets and variables → Actions → New repository secret**.
-
-### `VALIDATOR_DATABASE_URL` *(required)*
-
-The full PostgreSQL connection string for the CI database.
-
-**Format:**
-
-```
-postgresql://<user>:<password>@<host>:<port>/<database>?sslmode=require
-```
-
-**Example (with placeholders — do NOT use real credentials):**
-
-```
-postgresql://ci_user:REPLACE_WITH_PASSWORD@postgres-XXXX.railway.app:5432/railway?sslmode=require
-```
-
-> **Important:** Use a publicly-reachable hostname (e.g. `*.railway.app`) when
-> running on GitHub-hosted runners. See [Networking](#networking) below.
+1. [Required GitHub Secrets](#1-required-github-secrets)
+2. [Setting Secrets with the GitHub CLI](#2-setting-secrets-with-the-github-cli)
+3. [Networking & Self-Hosted Runner](#3-networking--self-hosted-runner)
+4. [Migration Guidance](#4-migration-guidance)
+5. [Local Test Instructions](#5-local-test-instructions)
 
 ---
 
-### `VALIDATOR_REDIS_URL` *(optional)*
+## 1. Required GitHub Secrets
 
-If your tests or the connectivity check should also verify Redis, set this
-secret. If omitted, the Redis check is skipped.
+Go to **GitHub → repository → Settings → Secrets and variables → Actions → Secrets** and add:
 
-**Format:**
+| Secret name               | Required | Description |
+|---------------------------|----------|-------------|
+| `VALIDATOR_DATABASE_URL`  | **Yes**  | PostgreSQL DSN for the Railway Postgres service |
+| `VALIDATOR_REDIS_URL`     | No       | Redis DSN (only if your tests require Redis) |
+| `VALIDATOR_JWT_SECRET`    | No       | JWT secret for tests that require authentication |
+
+### Connection string formats (examples — replace placeholders with real values)
 
 ```
-redis://<user>:<password>@<host>:<port>
+# PostgreSQL
+postgresql://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:<DB_PORT>/<DB_NAME>?sslmode=require
+
+# Example (Railway public host):
+postgresql://postgres:<secure-random-password>@roundhouse.proxy.rlwy.net:12345/railway?sslmode=require
+
+# Redis
+redis://:<REDIS_PASSWORD>@<REDIS_HOST>:<REDIS_PORT>
 ```
 
-**Example (placeholders):**
+> ⚠️  **Never commit credentials.** Only reference `${{ secrets.VALIDATOR_DATABASE_URL }}` in YAML.
 
-```
-redis://default:REPLACE_WITH_PASSWORD@redis-host.railway.app:6379
-```
+### How to find the Railway connection string
+
+1. Open your Railway project → select the **Postgres** service (postgres-rf1t).
+2. Click the **Connect** tab → **Public network**.
+3. Copy the **Database URL** shown there.  It looks like:
+   ```
+   postgresql://postgres:<password>@<public-host>.proxy.rlwy.net:<port>/railway
+   ```
+4. Use that value when setting the `VALIDATOR_DATABASE_URL` secret below.
 
 ---
 
-### `VALIDATOR_JWT_SECRET` *(optional)*
+## 2. Setting Secrets with the GitHub CLI
 
-Used by the test suite for JWT signing. If not set, a placeholder value
-(`ci-test-jwt-secret-placeholder`) is used automatically — sufficient for
-unit tests that do not hit a live auth endpoint.
-
-**Example (placeholder):**
-
-```
-a-long-random-string-at-least-32-chars
-```
-
----
-
-## Setting Secrets with the `gh` CLI
+Install the [GitHub CLI](https://cli.github.com/) and authenticate (`gh auth login`), then:
 
 ```bash
-# Required
+# Set VALIDATOR_DATABASE_URL
+# Replace the placeholder with the real Railway-provided connection string.
 gh secret set VALIDATOR_DATABASE_URL \
-  --repo YOUR_ORG/YOUR_REPO \
-  --body "postgresql://ci_user:REPLACE_WITH_PASSWORD@postgres-XXXX.railway.app:5432/railway?sslmode=require"
+  --repo InfinityXOneSystems/xps-lead-intelligence \
+  --body "postgresql://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:<DB_PORT>/<DB_NAME>?sslmode=require"
 
-# Optional
+# Set VALIDATOR_REDIS_URL  (optional)
 gh secret set VALIDATOR_REDIS_URL \
-  --repo YOUR_ORG/YOUR_REPO \
-  --body "redis://default:REPLACE_WITH_PASSWORD@redis-XXXX.railway.app:6379"
+  --repo InfinityXOneSystems/xps-lead-intelligence \
+  --body "redis://:<REDIS_PASSWORD>@<REDIS_HOST>:<REDIS_PORT>"
 
+# Set VALIDATOR_JWT_SECRET  (optional)
 gh secret set VALIDATOR_JWT_SECRET \
-  --repo YOUR_ORG/YOUR_REPO \
-  --body "REPLACE_WITH_LONG_RANDOM_SECRET"
+  --repo InfinityXOneSystems/xps-lead-intelligence \
+  --body "<your-jwt-secret>"
 ```
 
-> Replace every `REPLACE_WITH_*` placeholder with the actual value. Never
-> commit real credentials to source control.
+> 💡  You can also set secrets interactively (omit `--body`) — the CLI will prompt
+>     you to paste the value without it appearing in your shell history.
 
 ---
 
-## Networking
+## 3. Networking & Self-Hosted Runner
 
-### Public hostname (recommended for GitHub-hosted runners)
+### Public host (simplest)
 
-Railway exposes a **public TCP endpoint** for each Postgres service. In the
-Railway dashboard, open your Postgres service → **Connect** tab and copy the
-**Public URL** (format: `postgres-xxxx.railway.app:PORT`).
+If you use the **public proxy URL** from Railway (e.g. `*.proxy.rlwy.net`), the
+standard `runs-on: ubuntu-latest` GitHub-hosted runner can reach it directly.
+No extra configuration is needed.
 
-Use this public URL as `VALIDATOR_DATABASE_URL` when running on
-`runs-on: ubuntu-latest`.
+### Private network host (railway.internal)
 
-### Internal hostname (Railway-private network only)
+The hostname `postgres-rf1t.railway.internal` (and any `*.railway.internal` address)
+is **only resolvable inside Railway's private network**.  The GitHub-hosted runner
+cannot reach it.
 
-Railway also provides a **private hostname** such as
-`postgres-rf1t.railway.internal`. This hostname is **only reachable from
-within the Railway private network** and is NOT accessible from
-GitHub-hosted runners.
+You have two options:
 
-If you need to use the internal hostname (e.g., for security reasons), you
-must register a **self-hosted runner inside Railway** — see the section below.
+#### Option A — Use the public Railway proxy URL (recommended for CI)
 
----
+In the Railway dashboard → Postgres service → **Connect** → toggle to **Public Network**,
+copy the proxy URL, and use that as `VALIDATOR_DATABASE_URL`.
 
-## Self-Hosted Runner (Railway-internal network)
+#### Option B — Register a self-hosted runner inside Railway
 
-If your DB host is internal-only (e.g. `postgres-rf1t.railway.internal`),
-replace the `runs-on` line in `.github/workflows/validator.yml`:
+1. In GitHub → **Settings → Actions → Runners → New self-hosted runner**, follow the
+   setup instructions to register a runner with the label `railway-internal`.
+2. Deploy the runner inside your Railway project (e.g. as a separate Railway service)
+   so it shares the private network.
+3. Update the workflow `runs-on` line:
 
 ```yaml
-# Replace this:
-runs-on: ubuntu-latest
-
-# With this:
-runs-on: [self-hosted, linux, railway-internal]
+# .github/workflows/validator.yml — self-hosted runner snippet
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: [self-hosted, railway-internal]   # ← change this line
+    steps:
+      # ... rest of steps unchanged ...
 ```
 
-### Registering a self-hosted runner in Railway
-
-1. In GitHub, go to **Repository Settings → Actions → Runners → New
-   self-hosted runner**.
-2. Follow the instructions to download and configure the runner binary.
-3. Deploy the runner as a Railway service (e.g. a Docker container running the
-   runner agent) inside the same Railway project as Postgres.
-4. Label the runner `railway-internal` when prompted for labels.
-5. Ensure the runner service has a healthy start command and can reach
-   `postgres-rf1t.railway.internal`.
+> See [GitHub Docs — Self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners)
+> for full registration and security guidance.
 
 ---
 
-## Migration Guidance
+## 4. Migration Guidance
 
-> **Caution:** The Validator workflow runs `prisma validate` (schema check only,
-> no migrations). It does **not** run `prisma migrate deploy` automatically.
->
-> To avoid breaking your production data:
->
-> - Use a **dedicated CI database** or a **CI-specific database user** with
->   limited privileges (e.g., `SELECT` + schema introspection only).
-> - Do NOT point `VALIDATOR_DATABASE_URL` at your production database unless
->   you fully understand the risks.
-> - If you want the CI user to run migrations in staging, create a separate
->   staging secret and a separate workflow step gated on the target branch.
+> ⚠️  **Caution:** Running `prisma migrate deploy` against a **shared production
+>     database** from CI can cause data loss or downtime.  The Validator workflow
+>     only runs `prisma validate` (schema check, no migrations) and read-only
+>     connectivity tests.
 
-**Recommended Railway setup:**
+### Recommendations
 
-```sql
--- Run in your Railway Postgres console
-CREATE USER ci_user
-  WITH PASSWORD 'REPLACE_WITH_STRONG_PASSWORD'
-  NOCREATEDB NOCREATEROLE NOINHERIT;
-GRANT CONNECT ON DATABASE railway TO ci_user;
-GRANT USAGE ON SCHEMA public TO ci_user;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO ci_user;
--- Allow schema introspection (needed by prisma validate)
-GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO ci_user;
-```
+- **Create a CI-dedicated database user** with read-only or schema-validate-only
+  permissions on the Railway Postgres service. Grant it `CONNECT` and `SELECT`
+  privileges only.
+
+  ```sql
+  -- Run once on the Railway Postgres instance (psql or Railway console)
+  CREATE USER ci_validator WITH PASSWORD '<strong-random-password>';
+  GRANT CONNECT ON DATABASE railway TO ci_validator;
+  GRANT USAGE ON SCHEMA public TO ci_validator;
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO ci_validator;
+  -- Allow future tables to also be readable:
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ci_validator;
+  ```
+
+  Then set `VALIDATOR_DATABASE_URL` to use `ci_validator`'s credentials.
+
+- **Alternatively**, provision an **ephemeral CI database** (a separate Railway
+  Postgres service used only by CI) and set `VALIDATOR_DATABASE_URL` to that service's
+  public URL.
+
+- Do **not** use the same `DATABASE_URL` that your production backend uses.
 
 ---
 
-## Running the Same Steps Locally
+## 5. Local Test Instructions
+
+You can reproduce the exact same checks the Validator job runs on your local machine:
 
 ```bash
-# Export the same env vars
-export DATABASE_URL="postgresql://ci_user:PASSWORD@localhost:5432/mydb"
-export JWT_SECRET="local-test-secret"
+# 1. Export the Railway Postgres DSN (replace with your actual values)
+export VALIDATOR_DATABASE_URL="postgresql://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:<DB_PORT>/<DB_NAME>?sslmode=require"
+export VALIDATOR_REDIS_URL="redis://:<REDIS_PASSWORD>@<REDIS_HOST>:<REDIS_PORT>"  # optional
+export VALIDATOR_JWT_SECRET="<your-jwt-secret>"                                   # optional
 
-# Type-check
-cd backend && npx tsc --noEmit
+# 2. Connectivity checks
+DB_HOST=$(echo "$VALIDATOR_DATABASE_URL" | sed -E 's|postgresql://[^@]+@([^:/]+).*|\1|')
+DB_PORT=$(echo "$VALIDATOR_DATABASE_URL" | sed -E 's|postgresql://[^@]+@[^:]+:([0-9]+).*|\1|')
+pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -t 15
+psql "$VALIDATOR_DATABASE_URL" -c "SELECT 1;"
 
-# Lint
+# 3. Install deps
+cd backend && npm ci
+
+# 4. TypeScript
+npx tsc --noEmit
+
+# 5. Lint
 npm run lint
 
-# Prisma schema validate
-npx prisma validate
+# 6. Prisma validate
+DATABASE_URL="$VALIDATOR_DATABASE_URL" npx prisma validate
 
-# Tests with coverage
-npm test -- --coverage --coverageReporters=lcov,text
+# 7. Tests
+NODE_ENV=test \
+  DATABASE_URL="$VALIDATOR_DATABASE_URL" \
+  REDIS_URL="$VALIDATOR_REDIS_URL" \
+  JWT_SECRET="$VALIDATOR_JWT_SECRET" \
+  npm test -- --coverage --coverageDirectory=coverage
 ```
 
----
-
-## Security Notes
-
-- **Never** commit database credentials, passwords, or connection strings to
-  the repository. Use GitHub Actions secrets exclusively.
-- If a credential is accidentally committed, revoke and rotate it immediately,
-  then purge it from git history (e.g. with `git filter-repo`).
-- Rotate `VALIDATOR_DATABASE_URL` regularly, especially after team-member
-  offboarding.
-- Use a **separate CI database user** with minimal privileges rather than an
-  admin or application user.
-- Enable **SSL** (`?sslmode=require`) in the connection string to encrypt
-  data in transit between the runner and Railway Postgres.
-- Review Railway's [security documentation](https://docs.railway.app/reference/security)
-  for additional hardening options.
+All these commands map 1-to-1 to the steps in `.github/workflows/validator.yml`.

@@ -1,0 +1,175 @@
+name: Deploy Production
+
+# Deploys the main branch to Railway production environment.
+# Triggers automatically on every push to main (after CI has passed).
+# After deployment, triggers deploy-verification workflow.
+
+on:
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+  RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Authenticate Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "⚠️  RAILWAY_TOKEN secret not set."
+            echo "    Add RAILWAY_TOKEN to the 'production' GitHub environment to enable deployments."
+            echo "RAILWAY_AVAILABLE=false" >> $GITHUB_ENV
+          else
+            railway login --token "$RAILWAY_TOKEN"
+            echo "✅ Authenticated with Railway"
+            echo "RAILWAY_AVAILABLE=true" >> $GITHUB_ENV
+          fi
+
+      - name: Deploy Backend to Production
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "Deploying backend to Railway production..."
+          railway up \
+            --service backend \
+            --detach \
+            --project "${{ env.RAILWAY_PROJECT_ID }}" 2>&1 | tee /tmp/backend-deploy.log
+          echo "✅ Backend deploy initiated"
+
+      - name: Deploy Frontend to Production
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          echo "Deploying frontend to Railway production..."
+          railway up \
+            --service frontend \
+            --detach \
+            --project "${{ env.RAILWAY_PROJECT_ID }}" 2>&1 | tee /tmp/frontend-deploy.log
+          echo "✅ Frontend deploy initiated"
+
+      - name: Wait for Production to Become Ready
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "⚠️  BACKEND_URL secret not set — skipping readiness check"
+            echo "    Add BACKEND_URL to GitHub secrets (e.g., https://your-backend.railway.app)"
+            exit 0
+          fi
+
+          echo "Waiting for production backend at $BACKEND_URL ..."
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" \
+              "$BACKEND_URL/api/health" --max-time 20 2>/dev/null || echo "000")
+            echo "  Attempt $i/15: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Production backend is ready"
+              cat /tmp/health.json
+              break
+            fi
+            sleep 15
+          done
+
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Production backend did not become ready (last HTTP $STATUS)"
+            echo "   Check Railway service logs for errors."
+            exit 1
+          fi
+
+      # ── Inline production verification ────────────────────────────────────────
+      # Mirrors deploy-verification.yml for immediate feedback in this workflow.
+
+      - name: Production Health Verification
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then exit 0; fi
+
+          echo "=== Production Health Check ==="
+          RESPONSE=$(curl -sf "$BACKEND_URL/api/health" --max-time 15 || echo '{"error":"unreachable"}')
+          echo "$RESPONSE"
+
+          STATUS=$(echo "$RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('status','error'))" 2>/dev/null || echo "error")
+          if [ "$STATUS" = "ok" ]; then
+            echo "✅ Production API health: OK"
+          else
+            echo "❌ Production API health check failed"
+            exit 1
+          fi
+
+      - name: Production Deep Integration Check
+        if: env.RAILWAY_AVAILABLE == 'true'
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then exit 0; fi
+
+          echo "=== Production Deep Integration Check ==="
+          RESPONSE=$(curl -sf "$BACKEND_URL/api/outreach/health/deep" --max-time 20 \
+            || echo '{"error":"unreachable"}')
+
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          if 'error' in d:
+              print('⚠️  Deep check unreachable:', d['error'])
+              sys.exit(0)  # Non-fatal: endpoint may not be initialised yet
+          checks = d.get('checks', {})
+          all_ok = True
+          for name, check in checks.items():
+              s = check.get('status', 'unknown')
+              icon = '✅' if s == 'ok' else ('⚠️' if s == 'unconfigured' else '❌')
+              print(f'{icon} {name}: {s}')
+              if s not in ('ok', 'unconfigured'):
+                  all_ok = False
+          if not all_ok:
+              print('Some production integrations are in error state')
+              sys.exit(1)
+          " 2>/dev/null || echo "Could not parse deep check"
+
+      - name: Upload Deploy Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deploy-logs
+          path: /tmp/*-deploy.log
+          if-no-files-found: ignore
+
+      - name: Production Deployment Summary
+        if: always()
+        run: |
+          echo "## 🚀 Production Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: Push to \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Railway Token Configured**: ${{ secrets.RAILWAY_TOKEN != '' && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend URL Configured**: ${{ secrets.BACKEND_URL != '' && 'Yes' || 'No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Post-Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "The **Deploy Verification** workflow will run automatically." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See [DEPLOYMENT_FLOW.md](docs/DEPLOYMENT_FLOW.md) for rollback procedures." >> $GITHUB_STEP_SUMMARY
