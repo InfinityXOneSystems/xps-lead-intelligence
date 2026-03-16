@@ -40,6 +40,7 @@ The following technologies are approved for use in this repository. Adding a new
 | Tailwind CSS | 3.x | Styling |
 | next-themes | latest | Light/dark mode |
 | Lucide React | latest | Icons |
+| @monaco-editor/react | 4.x | Monaco code editor (AI Visual Editor workspace) |
 | ESLint (next/core-web-vitals) | 8.x | Linting |
 
 ### Infrastructure

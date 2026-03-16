@@ -40,6 +40,14 @@ app.use('/api/social', socialRouter);
 app.use('/api/outreach', outreachRouter);
 app.use('/api/auth', authRouter);
 
+// Convenience aliases matching the platform API contract
+// Canonical paths above; these aliases maintain compatibility with external integrations.
+// TODO (deprecation): prefer canonical paths above for new integrations.
+app.use('/api/chat', agentRouter);        // /api/chat → agent chat (canonical: /api/agent)
+app.use('/api/scrape', leadsRouter);      // /api/scrape → leads scraper (canonical: /api/leads/scrape)
+app.use('/api/agents', agentRouter);      // /api/agents → agent runtime (canonical: /api/agent)
+app.use('/api/settings', adminRouter);    // /api/settings → admin config (canonical: /api/admin)
+
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
