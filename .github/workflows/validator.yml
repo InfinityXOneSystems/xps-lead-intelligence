@@ -27,6 +27,8 @@ jobs:
     #   runs-on: [self-hosted, railway-internal]
     # See docs/VALIDATOR_SETUP.md for self-hosted runner setup.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       # ── 1. Checkout ────────────────────────────────────────────────────────
