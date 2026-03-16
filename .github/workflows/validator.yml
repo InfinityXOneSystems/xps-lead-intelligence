@@ -1,0 +1,200 @@
+# Validator Workflow
+#
+# Runs on every pull request to validate types, lint, tests, schema, and docs.
+#
+# REQUIRED SECRETS (set in GitHub → Settings → Secrets and variables → Actions):
+#   VALIDATOR_DATABASE_URL  — PostgreSQL DSN for the Railway Postgres service (postgres-rf1t)
+#                             e.g. postgresql://user:password@host:port/dbname
+#   VALIDATOR_REDIS_URL     — (optional) Redis DSN, e.g. redis://:password@host:port
+#   VALIDATOR_JWT_SECRET    — (optional) JWT secret for tests that require it
+#
+# ⚠️  If your Railway Postgres host (postgres-rf1t.railway.internal) is only reachable
+#     inside Railway's private network, you must use a self-hosted runner.
+#     See docs/VALIDATOR_SETUP.md → "Networking & Self-Hosted Runner" for instructions.
+#
+# NOTE: Do NOT commit any credentials into this file. All DSNs are read from secrets.
+
+name: Validator
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate PR
+    # If the Railway Postgres host is internal-only, change to:
+    #   runs-on: [self-hosted, railway-internal]
+    # See docs/VALIDATOR_SETUP.md for self-hosted runner setup.
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Install Node ────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      # ── 3. Install minimal DB/cache clients for connectivity checks ─────────
+      - name: Install postgresql-client and redis-tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client redis-tools
+
+      # ── 4. Connectivity check — Postgres + (optional) Redis ────────────────
+      #
+      # Exits with failure if the DB is unreachable or credentials are rejected.
+      # This surfaces network / secret problems early, before Prisma or tests run.
+      # See docs/VALIDATOR_SETUP.md for troubleshooting.
+      - name: Check Database & Redis connectivity (real services)
+        env:
+          DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.VALIDATOR_REDIS_URL }}
+        run: |
+          set -euo pipefail
+
+          # ── Postgres ────────────────────────────────────────────────────────
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::VALIDATOR_DATABASE_URL secret is not set. See docs/VALIDATOR_SETUP.md."
+            exit 1
+          fi
+
+          # Parse host and port from the DSN
+          # Expected format: postgresql://user:password@host:port/dbname[?params]
+          DB_HOST=$(echo "$DATABASE_URL" | sed -E 's|postgresql://[^@]+@([^:/]+).*|\1|')
+          DB_PORT=$(echo "$DATABASE_URL" | sed -E 's|postgresql://[^@]+@[^:]+:([0-9]+).*|\1|')
+          DB_PORT=${DB_PORT:-5432}
+
+          echo "→ Testing pg_isready on ${DB_HOST}:${DB_PORT}..."
+          if ! pg_isready -h "$DB_HOST" -p "$DB_PORT" -t 15; then
+            echo "::error::pg_isready failed — Postgres host ${DB_HOST}:${DB_PORT} is unreachable."
+            echo "::error::If using Railway private networking, see docs/VALIDATOR_SETUP.md."
+            exit 1
+          fi
+          echo "✓ pg_isready succeeded"
+
+          echo "→ Running simple query to verify credentials..."
+          if ! psql "$DATABASE_URL" -c "SELECT 1;" --no-password --no-psqlrc -q; then
+            echo "::error::psql authentication/query failed — check VALIDATOR_DATABASE_URL credentials."
+            exit 1
+          fi
+          echo "✓ Postgres connection verified"
+
+          # ── Redis (optional) ────────────────────────────────────────────────
+          if [ -n "${REDIS_URL:-}" ]; then
+            echo "→ Testing Redis connectivity..."
+            REDIS_HOST=$(echo "$REDIS_URL" | sed -E 's|redis://([^:@]*:[^@]*@)?([^:/]+).*|\2|')
+            REDIS_PORT=$(echo "$REDIS_URL" | sed -E 's|redis://[^@]*@?[^:]+:([0-9]+).*|\1|')
+            REDIS_PORT=${REDIS_PORT:-6379}
+            REDIS_PASS=$(echo "$REDIS_URL" | sed -nE 's|redis://:([^@]+)@.*|\1|p')
+
+            if [ -n "$REDIS_PASS" ]; then
+              PING=$(REDISCLI_AUTH="$REDIS_PASS" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING 2>/dev/null || true)
+            else
+              PING=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING 2>/dev/null || true)
+            fi
+
+            if [ "$PING" != "PONG" ]; then
+              echo "::error::redis-cli PING failed (got '${PING}') — check VALIDATOR_REDIS_URL."
+              exit 1
+            fi
+            echo "✓ Redis connection verified"
+          else
+            echo "ℹ VALIDATOR_REDIS_URL not set — skipping Redis check."
+          fi
+
+      # ── 5. Install backend dependencies ────────────────────────────────────
+      - name: Install backend dependencies
+        run: cd backend && npm ci
+
+      # ── 6. TypeScript type-check ────────────────────────────────────────────
+      - name: TypeScript type-check
+        run: cd backend && npx tsc --noEmit
+
+      # ── 7. Lint ─────────────────────────────────────────────────────────────
+      - name: Lint
+        run: cd backend && npm run lint
+
+      # ── 8. Validate Database Schema (Prisma) ───────────────────────────────
+      - name: Validate Database Schema
+        env:
+          DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+        run: cd backend && npx prisma validate
+
+      # ── 9. Run tests ────────────────────────────────────────────────────────
+      - name: Run tests
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.VALIDATOR_REDIS_URL }}
+          JWT_SECRET: ${{ secrets.VALIDATOR_JWT_SECRET }}
+        run: cd backend && npm test -- --coverage --coverageDirectory=coverage
+
+      # ── 10. File presence checks ────────────────────────────────────────────
+      - name: Check required files are present
+        run: |
+          set -euo pipefail
+          MISSING=0
+          for f in \
+            backend/package.json \
+            backend/tsconfig.json \
+            backend/prisma/schema.prisma \
+            docs/VALIDATOR_SETUP.md \
+            docs/RAILWAY.md; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Required file missing: $f"
+              MISSING=$((MISSING+1))
+            fi
+          done
+          if [ "$MISSING" -gt 0 ]; then
+            exit 1
+          fi
+          echo "✓ All required files present"
+
+      # ── 11. Docs checks ─────────────────────────────────────────────────────
+      - name: Check docs are not empty
+        run: |
+          set -euo pipefail
+          for f in docs/VALIDATOR_SETUP.md docs/RAILWAY.md; do
+            LINES=$(wc -l < "$f" 2>/dev/null || echo 0)
+            if [ "$LINES" -lt 5 ]; then
+              echo "::error::Doc file appears too short (< 5 lines): $f"
+              exit 1
+            fi
+          done
+          echo "✓ Docs look okay"
+
+      # ── 12. Upload coverage artifact ────────────────────────────────────────
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 14
+
+      # ── 13. Coverage summary ────────────────────────────────────────────────
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f backend/coverage/coverage-summary.json ]; then
+            echo "## Coverage Summary" >> "$GITHUB_STEP_SUMMARY"
+            node -e "
+              try {
+                const s = require('./backend/coverage/coverage-summary.json').total;
+                if (!s) { console.log('Coverage total not found in summary.'); process.exit(0); }
+                const fmt = (k) => s[k] ? \`**\${k}**: \${s[k].pct}%\` : \`**\${k}**: n/a\`;
+                console.log([fmt('lines'), fmt('statements'), fmt('functions'), fmt('branches')].join(' | '));
+              } catch (e) {
+                console.log('Could not parse coverage summary: ' + e.message);
+              }
+            " >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Coverage summary not available." >> "$GITHUB_STEP_SUMMARY"
+          fi
