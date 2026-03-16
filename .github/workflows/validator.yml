@@ -1,0 +1,274 @@
+# Validator workflow — runs on every Pull Request targeting main.
+#
+# This workflow uses a REAL Railway PostgreSQL database (no dummy DSNs).
+# Required repository secret: VALIDATOR_DATABASE_URL
+# Optional secrets:          VALIDATOR_REDIS_URL, VALIDATOR_JWT_SECRET
+#
+# See docs/VALIDATOR_SETUP.md for:
+#   • How to create the GitHub secrets
+#   • Networking guidance (public vs. Railway-internal hostnames)
+#   • Self-hosted runner setup if the DB is only reachable internally
+
+name: Validator
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validator
+
+    permissions:
+      contents: read
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Runner selection
+    # ──────────────────────────────────────────────────────────────────────────
+    # Default: GitHub-hosted runner (requires a publicly-reachable DB hostname).
+    runs-on: ubuntu-latest
+    #
+    # NOTE: If your DB host is only reachable inside the Railway private network
+    # (e.g. postgres-rf1t.railway.internal), replace the line above with:
+    #
+    #   runs-on: [self-hosted, linux, railway-internal]
+    #
+    # See docs/VALIDATOR_SETUP.md#self-hosted-runner for registration steps.
+    # ──────────────────────────────────────────────────────────────────────────
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js setup ───────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      # ── 3. Install backend dependencies ────────────────────────────────────
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      # ── 4. DB / Redis connectivity check ───────────────────────────────────
+      # Verifies that the runner can actually reach and authenticate against
+      # the Railway Postgres (and optionally Redis) before running any tests.
+      # No credentials are printed; they are read exclusively from secrets.
+      # See docs/VALIDATOR_SETUP.md for setup and troubleshooting.
+      - name: Check DB / Redis connectivity
+        id: connectivity
+        env:
+          VALIDATOR_DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+          VALIDATOR_REDIS_URL: ${{ secrets.VALIDATOR_REDIS_URL }}
+        run: |
+          set -euo pipefail
+
+          # ── Guard: secret must be present ──────────────────────────────────
+          if [ -z "${VALIDATOR_DATABASE_URL:-}" ]; then
+            echo "::error::VALIDATOR_DATABASE_URL secret is not set."
+            echo "::error::See docs/VALIDATOR_SETUP.md for instructions."
+            exit 1
+          fi
+
+          # ── Install minimal DB/cache clients ───────────────────────────────
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            postgresql-client redis-tools python3
+
+          # ── Parse connection components from URL ────────────────────────────
+          DB_HOST=$(python3 - "$VALIDATOR_DATABASE_URL" <<'PYEOF'
+          import sys, urllib.parse
+          u = urllib.parse.urlparse(sys.argv[1])
+          print(u.hostname or "")
+          PYEOF
+          )
+          DB_PORT=$(python3 - "$VALIDATOR_DATABASE_URL" <<'PYEOF'
+          import sys, urllib.parse
+          u = urllib.parse.urlparse(sys.argv[1])
+          print(u.port or 5432)
+          PYEOF
+          )
+          DB_USER=$(python3 - "$VALIDATOR_DATABASE_URL" <<'PYEOF'
+          import sys, urllib.parse
+          u = urllib.parse.urlparse(sys.argv[1])
+          print(u.username or "")
+          PYEOF
+          )
+          DB_PASS=$(python3 - "$VALIDATOR_DATABASE_URL" <<'PYEOF'
+          import sys, urllib.parse
+          u = urllib.parse.urlparse(sys.argv[1])
+          print(u.password or "")
+          PYEOF
+          )
+          DB_NAME=$(python3 - "$VALIDATOR_DATABASE_URL" <<'PYEOF'
+          import sys, urllib.parse
+          u = urllib.parse.urlparse(sys.argv[1])
+          print((u.path or "/").lstrip("/") or "postgres")
+          PYEOF
+          )
+
+          echo "Checking PostgreSQL connectivity to ${DB_HOST}:${DB_PORT} ..."
+
+          # ── pg_isready: network + listener check ───────────────────────────
+          if ! pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -t 15; then
+            echo "::error::pg_isready failed — cannot reach ${DB_HOST}:${DB_PORT}."
+            echo "::error::Check VALIDATOR_DATABASE_URL and runner network access."
+            echo "::error::If the host is Railway-internal, see docs/VALIDATOR_SETUP.md#self-hosted-runner"
+            exit 1
+          fi
+
+          # ── psql: authentication + query check ────────────────────────────
+          if ! PGPASSWORD="$DB_PASS" psql \
+                -h "$DB_HOST" -p "$DB_PORT" \
+                -U "$DB_USER" -d "$DB_NAME" \
+                -c "SELECT 1 AS connectivity_ok;" \
+                --no-password --quiet 2>&1; then
+            echo "::error::psql authentication failed."
+            echo "::error::Verify the credentials in VALIDATOR_DATABASE_URL."
+            echo "::error::See docs/VALIDATOR_SETUP.md for troubleshooting."
+            exit 1
+          fi
+
+          echo "✅ PostgreSQL connectivity OK (${DB_HOST}:${DB_PORT})"
+
+          # ── Optional Redis check ───────────────────────────────────────────
+          if [ -n "${VALIDATOR_REDIS_URL:-}" ]; then
+            echo "Checking Redis connectivity ..."
+            REDIS_HOST=$(python3 - "$VALIDATOR_REDIS_URL" <<'PYEOF'
+            import sys, urllib.parse
+            u = urllib.parse.urlparse(sys.argv[1])
+            print(u.hostname or "")
+            PYEOF
+            )
+            REDIS_PORT=$(python3 - "$VALIDATOR_REDIS_URL" <<'PYEOF'
+            import sys, urllib.parse
+            u = urllib.parse.urlparse(sys.argv[1])
+            print(u.port or 6379)
+            PYEOF
+            )
+            REDIS_PASS=$(python3 - "$VALIDATOR_REDIS_URL" <<'PYEOF'
+            import sys, urllib.parse
+            u = urllib.parse.urlparse(sys.argv[1])
+            print(u.password or "")
+            PYEOF
+            )
+            REDIS_PING_ARGS=(-h "$REDIS_HOST" -p "$REDIS_PORT")
+            if [ -n "$REDIS_PASS" ]; then
+              REDIS_PING_ARGS+=(--no-auth-warning -a "$REDIS_PASS")
+            fi
+            if ! redis-cli "${REDIS_PING_ARGS[@]}" ping 2>&1 | grep -qi "PONG"; then
+              echo "::error::Redis ping failed at ${REDIS_HOST}:${REDIS_PORT}."
+              echo "::error::Check VALIDATOR_REDIS_URL. See docs/VALIDATOR_SETUP.md."
+              exit 1
+            fi
+            echo "✅ Redis connectivity OK (${REDIS_HOST}:${REDIS_PORT})"
+          else
+            echo "ℹ️  VALIDATOR_REDIS_URL not set — skipping Redis check"
+          fi
+
+      # ── 5. TypeScript type-check ────────────────────────────────────────────
+      - name: TypeScript type-check
+        id: tsc
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      # ── 6. Lint ─────────────────────────────────────────────────────────────
+      - name: Lint
+        id: lint
+        working-directory: backend
+        run: npm run lint
+
+      # ── 7. Validate Prisma schema against the real DB ───────────────────────
+      - name: Validate Database Schema
+        id: prisma_validate
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+        run: npx prisma validate
+
+      # ── 8. Run tests with coverage ──────────────────────────────────────────
+      - name: Run tests with coverage
+        id: tests
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.VALIDATOR_DATABASE_URL }}
+          # VALIDATOR_JWT_SECRET is optional; falls back to a CI-only placeholder.
+          JWT_SECRET: ${{ secrets.VALIDATOR_JWT_SECRET || 'ci-test-jwt-secret-placeholder' }}
+          REDIS_URL: ${{ secrets.VALIDATOR_REDIS_URL }}
+        run: npm test -- --coverage --coverageReporters=lcov,text
+
+      # ── 9. File presence checks ─────────────────────────────────────────────
+      - name: Check required files are present
+        id: file_check
+        run: |
+          set -euo pipefail
+          required_files=(
+            "backend/src/index.ts"
+            "backend/prisma/schema.prisma"
+            "docs/RAILWAY.md"
+            "docs/VALIDATOR_SETUP.md"
+          )
+          missing=0
+          for f in "${required_files[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Required file missing: $f"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            exit 1
+          fi
+          echo "✅ All required files present"
+
+      # ── 10. Docs non-empty check ─────────────────────────────────────────────
+      - name: Check docs are non-empty
+        id: docs_check
+        run: |
+          set -euo pipefail
+          for doc in docs/RAILWAY.md docs/VALIDATOR_SETUP.md; do
+            if [ ! -s "$doc" ]; then
+              echo "::error::$doc is empty or missing"
+              exit 1
+            fi
+          done
+          echo "✅ Docs are non-empty"
+
+      # ── 11. Upload coverage artifact ────────────────────────────────────────
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: backend/coverage/
+          retention-days: 7
+
+      # ── 12. Validation summary ───────────────────────────────────────────────
+      - name: Validation Summary
+        if: always()
+        run: |
+          step_icon() {
+            case "$1" in
+              success)  echo "✅" ;;
+              failure)  echo "❌" ;;
+              skipped)  echo "⏭️" ;;
+              *)        echo "⚠️" ;;
+            esac
+          }
+          echo "## 🔍 Validator Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| DB / Redis connectivity | $(step_icon '${{ steps.connectivity.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript type-check   | $(step_icon '${{ steps.tsc.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Lint                    | $(step_icon '${{ steps.lint.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Prisma schema validate  | $(step_icon '${{ steps.prisma_validate.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tests (with coverage)   | $(step_icon '${{ steps.tests.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Required files          | $(step_icon '${{ steps.file_check.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Docs non-empty          | $(step_icon '${{ steps.docs_check.outcome }}') |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "_Coverage artifact uploaded as \`coverage-report\`._" >> "$GITHUB_STEP_SUMMARY"
