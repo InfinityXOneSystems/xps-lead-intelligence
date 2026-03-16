@@ -106,7 +106,7 @@ jobs:
             echo "    Set RAILWAY_TOKEN in GitHub → Settings → Secrets to enable Railway deployments."
             echo "RAILWAY_AVAILABLE=false" >> $GITHUB_ENV
           else
-            railway login --token "$RAILWAY_TOKEN"
+            echo "$RAILWAY_TOKEN" | railway login --ci
             echo "✅ Authenticated with Railway"
             echo "RAILWAY_AVAILABLE=true" >> $GITHUB_ENV
           fi
