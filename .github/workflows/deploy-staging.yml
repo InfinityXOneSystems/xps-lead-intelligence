@@ -266,6 +266,7 @@ jobs:
       - name: Merge Pull Request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           PR="${{ github.event.pull_request.number }}"
           REPO="${{ github.repository }}"
@@ -278,7 +279,7 @@ jobs:
             --repo "$REPO" \
             --squash \
             --delete-branch \
-            --subject "Auto-merge: ${{ github.event.pull_request.title }}" \
+            --subject "Auto-merge: ${PR_TITLE}" \
             --body "Automatically merged after CI, Validator, and staging deployment passed." \
             2>&1 || \
           gh pr merge "$PR" \
