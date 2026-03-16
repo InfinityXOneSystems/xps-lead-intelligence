@@ -10,6 +10,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  role         UserRole @default(MEMBER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+
+  @@map("user_role")
+}
+
+model Company {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  domain   String?
+  industry String?
+  size     String?
+  metadata Json    @default("{}")
+  leads    Lead[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("companies")
+}
+
 model Lead {
   id               String   @id @default(cuid())
   // Contact identifiers
@@ -24,7 +56,10 @@ model Lead {
   specialities     String?
   // Legacy compat
   name             String?
-  company          String?
+  company          String?   // plain company name string (legacy — kept for backward compat)
+  // Structured company relation (optional; companyId and company string may coexist during migration)
+  companyId        String?
+  companyRef       Company?  @relation(fields: [companyId], references: [id])
   phone            String?
   website          String?
   source           String?

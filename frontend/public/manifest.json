@@ -1,0 +1,49 @@
+{
+  "name": "XPS Lead Intelligence",
+  "short_name": "XPS Leads",
+  "description": "Enterprise AI platform for lead intelligence, scraping, and autonomous agent workflows",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a14",
+  "theme_color": "#00d2ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Agent Chat",
+      "short_name": "Agent",
+      "description": "Open the AI agent workspace",
+      "url": "/?section=agent",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Leads Dashboard",
+      "short_name": "Leads",
+      "description": "View and manage leads",
+      "url": "/?section=leads",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Scraper",
+      "short_name": "Scraper",
+      "description": "Run the live scraper",
+      "url": "/?section=scraper",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

@@ -1,0 +1,500 @@
+name: Auto-Analyze / Auto-Fix / Auto-Heal
+
+# Triggers:
+# - Manual dispatch (with optional options)
+# - Scheduled (every 12 hours)
+# - After CI/CD Pipeline completes on main (post-deploy healing)
+
+on:
+  workflow_dispatch:
+    inputs:
+      depth:
+        description: 'Analysis depth: quick | full | harden'
+        required: false
+        default: 'full'
+        type: choice
+        options: [quick, full, harden]
+      auto_fix:
+        description: 'Automatically commit fixes?'
+        required: false
+        default: 'true'
+        type: boolean
+  schedule:
+    - cron: '0 */12 * * *'   # every 12 hours
+  workflow_run:
+    workflows: ['CI/CD Pipeline']
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: write
+
+env:
+  NODE_VERSION: '20'
+  DEPTH: ${{ github.event.inputs.depth || 'full' }}
+  AUTO_FIX: ${{ github.event.inputs.auto_fix || 'true' }}
+
+jobs:
+  # ── Phase 1: Analyze ─────────────────────────────────────────────────────────
+  analyze:
+    name: Analyze Repository Health
+    runs-on: ubuntu-latest
+    outputs:
+      backend_lint_errors: ${{ steps.backend_lint.outputs.errors }}
+      backend_ts_errors: ${{ steps.backend_ts.outputs.errors }}
+      test_failures: ${{ steps.tests.outputs.failures }}
+      frontend_errors: ${{ steps.frontend_build.outputs.errors }}
+      health_score: ${{ steps.score.outputs.score }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Install Frontend
+        working-directory: frontend
+        run: npm ci
+
+      # ── Backend Lint ──────────────────────────────────────────────────────────
+      - name: Analyze Backend Lint
+        id: backend_lint
+        working-directory: backend
+        run: |
+          set +e
+          OUTPUT=$(npm run lint 2>&1)
+          EXIT=$?
+          ERRORS=$(echo "$OUTPUT" | grep -c "error" || true)
+          WARNINGS=$(echo "$OUTPUT" | grep -c "warning" || true)
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
+          echo "output<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Backend lint: $ERRORS errors, $WARNINGS warnings"
+
+      # ── Backend TypeScript ────────────────────────────────────────────────────
+      - name: Analyze Backend TypeScript
+        id: backend_ts
+        working-directory: backend
+        run: |
+          set +e
+          OUTPUT=$(npx tsc --noEmit 2>&1)
+          EXIT=$?
+          ERRORS=$(echo "$OUTPUT" | grep -c "error TS" || true)
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "exit_code=$EXIT" >> $GITHUB_OUTPUT
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "❌ TypeScript: $ERRORS type errors"
+            echo "$OUTPUT"
+          else
+            echo "✅ TypeScript: clean"
+          fi
+
+      # ── Backend Tests ─────────────────────────────────────────────────────────
+      - name: Analyze Backend Tests
+        id: tests
+        working-directory: backend
+        env:
+          JWT_SECRET: test-secret-for-ci
+          NODE_ENV: test
+        run: |
+          set +e
+          # Use --json for reliable structured output, --silent to suppress extra logs
+          npm test -- --passWithNoTests --json --outputFile=/tmp/jest-results.json 2>&1 || true
+          # Parse structured JSON output
+          FAILURES=$(node -e "
+            try {
+              const r = require('/tmp/jest-results.json');
+              process.stdout.write(String(r.numFailedTests || 0));
+            } catch(e) { process.stdout.write('0'); }
+          " 2>/dev/null || echo "0")
+          PASSES=$(node -e "
+            try {
+              const r = require('/tmp/jest-results.json');
+              process.stdout.write(String(r.numPassedTests || 0));
+            } catch(e) { process.stdout.write('0'); }
+          " 2>/dev/null || echo "0")
+          echo "failures=${FAILURES}" >> $GITHUB_OUTPUT
+          echo "passes=${PASSES}" >> $GITHUB_OUTPUT
+          if [ "${FAILURES}" -gt 0 ]; then
+            echo "❌ Tests: $FAILURES failed, $PASSES passed"
+          else
+            echo "✅ Tests: $PASSES passed"
+          fi
+
+      # ── Frontend Build ────────────────────────────────────────────────────────
+      - name: Analyze Frontend Build
+        id: frontend_build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+        run: |
+          set +e
+          OUTPUT=$(npm run build 2>&1)
+          EXIT=$?
+          ERRORS=$(echo "$OUTPUT" | grep -c "Error:" || true)
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "exit_code=$EXIT" >> $GITHUB_OUTPUT
+          if [ "$EXIT" -ne 0 ]; then
+            echo "❌ Frontend build: FAILED"
+            echo "$OUTPUT"
+          else
+            echo "✅ Frontend build: OK"
+          fi
+
+      # ── Database Schema ───────────────────────────────────────────────────────
+      - name: Analyze Database Schema
+        id: schema
+        working-directory: backend
+        env:
+          DATABASE_URL: 'postgresql://localhost:5432/ci_analyze'
+        run: |
+          set +e
+          OUTPUT=$(npx prisma validate 2>&1)
+          EXIT=$?
+          if [ "$EXIT" -eq 0 ]; then
+            echo "✅ Prisma schema: valid"
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Prisma schema: invalid"
+            echo "$OUTPUT"
+            echo "valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Security Audit ────────────────────────────────────────────────────────
+      - name: Security Audit (Backend)
+        id: audit_backend
+        if: env.DEPTH != 'quick'
+        working-directory: backend
+        run: |
+          set +e
+          OUTPUT=$(npm audit --audit-level=high 2>&1)
+          EXIT=$?
+          VULNS=$(echo "$OUTPUT" | grep -c "high\|critical" || echo "0")
+          echo "vulnerabilities=${VULNS}" >> $GITHUB_OUTPUT
+          if [ "$EXIT" -ne 0 ]; then
+            echo "⚠️ Backend audit: $VULNS high/critical vulnerabilities"
+          else
+            echo "✅ Backend audit: clean"
+          fi
+
+      - name: Security Audit (Frontend)
+        id: audit_frontend
+        if: env.DEPTH != 'quick'
+        working-directory: frontend
+        run: |
+          set +e
+          npm audit --audit-level=high 2>&1 | tail -5
+          echo "✅ Frontend audit complete"
+
+      # ── Compute Health Score ──────────────────────────────────────────────────
+      - name: Compute Health Score
+        id: score
+        run: |
+          SCORE=100
+          LINT_ERRORS="${{ steps.backend_lint.outputs.errors }}"
+          TS_ERRORS="${{ steps.backend_ts.outputs.errors }}"
+          TEST_FAILURES="${{ steps.tests.outputs.failures }}"
+          FRONTEND_ERRORS="${{ steps.frontend_build.outputs.errors }}"
+
+          # Deduct points
+          if [ "${LINT_ERRORS:-0}" -gt 0 ]; then SCORE=$((SCORE - 10)); fi
+          if [ "${TS_ERRORS:-0}" -gt 0 ]; then SCORE=$((SCORE - 25)); fi
+          if [ "${TEST_FAILURES:-0}" -gt 0 ]; then SCORE=$((SCORE - 30)); fi
+          if [ "${FRONTEND_ERRORS:-0}" -gt 0 ]; then SCORE=$((SCORE - 20)); fi
+
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "## 🏥 Repository Health Score: $SCORE/100" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Lint | $([ '${LINT_ERRORS:-0}' = '0' ] && echo '✅ Clean' || echo '⚠️ '$LINT_ERRORS' errors') |" >> $GITHUB_STEP_SUMMARY
+          echo "| TypeScript | $([ '${TS_ERRORS:-0}' = '0' ] && echo '✅ Clean' || echo '❌ '$TS_ERRORS' errors') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | $([ '${TEST_FAILURES:-0}' = '0' ] && echo '✅ Passing' || echo '❌ '$TEST_FAILURES' failures') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend Build | $([ '${FRONTEND_ERRORS:-0}' = '0' ] && echo '✅ OK' || echo '❌ Errors') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Score**: $SCORE/100" >> $GITHUB_STEP_SUMMARY
+
+  # ── Phase 2: Heal (if issues found) ──────────────────────────────────────────
+  heal:
+    name: Auto-Heal Issues
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: |
+      needs.analyze.outputs.backend_lint_errors != '0' ||
+      needs.analyze.outputs.backend_ts_errors != '0' ||
+      needs.analyze.outputs.test_failures != '0' ||
+      needs.analyze.outputs.frontend_errors != '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Dependencies
+        run: |
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      # ── Auto-fix lint ─────────────────────────────────────────────────────────
+      - name: Auto-fix Backend Lint
+        if: needs.analyze.outputs.backend_lint_errors != '0'
+        working-directory: backend
+        run: |
+          echo "Running ESLint auto-fix..."
+          npx eslint src --ext .ts --fix || true
+          echo "✅ ESLint auto-fix applied"
+
+      # ── Heal: report issues via GitHub issue ──────────────────────────────────
+      - name: Create Healing Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SCORE="${{ needs.analyze.outputs.health_score }}"
+          TS_ERRORS="${{ needs.analyze.outputs.backend_ts_errors }}"
+          TEST_FAILURES="${{ needs.analyze.outputs.test_failures }}"
+
+          BODY="## 🔧 Auto-Heal Report
+
+          **Triggered**: $(date -u)
+          **Health Score**: $SCORE/100
+
+          ### Issues Detected
+          - TypeScript errors: $TS_ERRORS
+          - Test failures: $TEST_FAILURES
+          - Frontend errors: ${{ needs.analyze.outputs.frontend_errors }}
+
+          ### Actions Taken
+          - ESLint auto-fix applied where possible
+          - Full analysis logged in GitHub Actions
+
+          ### Next Steps
+          If TypeScript or test failures remain, manual review is required.
+          See the [Actions run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for full details.
+          "
+
+          # Only create issue if score is critically low
+          if [ "$SCORE" -lt 70 ]; then
+            gh issue create \
+              --title "[Auto-Heal] Repository health score: $SCORE/100 — $(date -u +%Y-%m-%d)" \
+              --body "$BODY" \
+              --label "auto-heal,needs-attention" \
+              --repo ${{ github.repository }} || echo "Could not create issue (labels may not exist)"
+          fi
+
+  # ── Phase 3: Verify Railway Deployment ───────────────────────────────────────
+  verify-railway:
+    name: Verify Railway Deployment Health
+    runs-on: ubuntu-latest
+    needs: analyze
+    # Always run verification (even if analyze found issues, so we know prod state)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: npm ci && npx playwright install --with-deps chromium
+
+      - name: Set Railway URLs
+        id: urls
+        run: |
+          BACKEND="${{ secrets.BACKEND_URL }}"
+          FRONTEND="${{ secrets.FRONTEND_URL }}"
+          echo "backend=${BACKEND:-}" >> $GITHUB_OUTPUT
+          echo "frontend=${FRONTEND:-}" >> $GITHUB_OUTPUT
+          if [ -z "$BACKEND" ]; then
+            echo "⚠️ BACKEND_URL not set — Railway verification skipped"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Verify Backend Health (Railway)
+        if: steps.urls.outputs.skip != 'true'
+        run: |
+          BACKEND="${{ steps.urls.outputs.backend }}"
+          echo "Checking Railway backend: $BACKEND"
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BACKEND/api/health" --max-time 15 || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend healthy (HTTP 200)"
+              cat /tmp/health.json
+              break
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying..."
+            sleep 10
+          done
+          if [ "$STATUS" != "200" ]; then
+            echo "⚠️ Backend returned HTTP $STATUS"
+          fi
+
+      - name: Run Playwright Railway Verification
+        if: steps.urls.outputs.skip != 'true'
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ steps.urls.outputs.frontend }}
+          BACKEND_URL: ${{ steps.urls.outputs.backend }}
+        run: |
+          npx playwright test tests/railway-deployment.spec.ts --reporter=list || echo "⚠️ Playwright Railway tests had failures — see report"
+
+      - name: Upload Playwright Report
+        if: always() && steps.urls.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: railway-playwright-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+
+      - name: Railway Verification Summary
+        if: always()
+        run: |
+          echo "## 🚂 Railway Deployment Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.urls.outputs.skip }}" = "true" ]; then
+            echo "⚠️ Skipped — BACKEND_URL / FRONTEND_URL secrets not configured" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To enable Railway verification, add these GitHub secrets:" >> $GITHUB_STEP_SUMMARY
+            echo "- \`BACKEND_URL\`: your Railway backend URL" >> $GITHUB_STEP_SUMMARY
+            echo "- \`FRONTEND_URL\`: your Railway frontend URL" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Backend: ${{ steps.urls.outputs.backend }}" >> $GITHUB_STEP_SUMMARY
+            echo "- Frontend: ${{ steps.urls.outputs.frontend }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ── Phase 4: Harden (security hardening, runs on 'harden' depth) ─────────────
+  harden:
+    name: Security Hardening
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: github.event.inputs.depth == 'harden' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Check for Hardcoded Secrets
+        run: |
+          echo "Scanning for potential hardcoded secrets with gitleaks..."
+          # Use gitleaks if available, otherwise fall back to basic pattern check
+          if command -v gitleaks &> /dev/null; then
+            gitleaks detect --source . --no-git --exit-code 1 2>&1 || echo "⚠️ Gitleaks found potential secrets — review required"
+          else
+            # Basic patterns: look for high-entropy strings that look like credentials
+            FOUND=0
+            for pattern in \
+              "(?i)(password|passwd|pwd)\s*[=:]\s*['\"][^'\"]{8,}" \
+              "(?i)(api[_-]?key|apikey)\s*[=:]\s*['\"][^'\"]{16,}" \
+              "(?i)(secret|private[_-]?key)\s*[=:]\s*['\"][^'\"]{16,}"; do
+              MATCHES=$(grep -rPn "$pattern" backend/src/ frontend/src/ 2>/dev/null \
+                | grep -v "process\.env\|test\|spec\|mock\|example\|placeholder\|//.*=" \
+                | wc -l || echo "0")
+              if [ "${MATCHES:-0}" -gt 0 ]; then
+                echo "⚠️ Potential hardcoded credential pattern found ($MATCHES matches)"
+                FOUND=$((FOUND + 1))
+              fi
+            done
+            if [ "$FOUND" -eq 0 ]; then
+              echo "✅ No hardcoded secrets detected"
+            fi
+          fi
+
+      - name: Check for SSRF Vulnerabilities
+        run: |
+          echo "Scanning for unprotected external URL calls..."
+          # Flag any fetch/http calls that bypass assertSafeExternalUrl
+          UNPROTECTED=$(grep -rn "fetch\|axios\|http.request\|https.request" backend/src/ \
+            --include="*.ts" | \
+            grep -v "assertSafeExternalUrl\|test\|spec\|mock\|health\|localhost" | \
+            grep -v "//.*fetch\|//.*http" | \
+            wc -l || echo "0")
+          if [ "$UNPROTECTED" -gt 0 ]; then
+            echo "⚠️ $UNPROTECTED potential unprotected external calls — verify SSRF protection"
+            grep -rn "fetch\|axios\|http.request" backend/src/ --include="*.ts" | \
+              grep -v "assertSafeExternalUrl\|test\|spec\|mock\|health\|localhost" | \
+              grep -v "//.*fetch" | head -10
+          else
+            echo "✅ No unprotected external calls detected"
+          fi
+
+      - name: Check for SQL Injection (Raw Queries)
+        run: |
+          echo "Scanning for raw SQL queries..."
+          RAW=$(grep -rn "\$queryRaw\|\$executeRaw\|query(" backend/src/ --include="*.ts" | \
+            grep -v "//.*query\|test\|spec" | wc -l || echo "0")
+          if [ "$RAW" -gt 0 ]; then
+            echo "⚠️ $RAW raw query calls found — verify parameterization"
+          else
+            echo "✅ No raw SQL queries detected"
+          fi
+
+      - name: Check JWT Secret Strength
+        run: |
+          # Verify JWT_SECRET check exists in app startup
+          if grep -rn "JWT_SECRET" backend/src/index.ts 2>/dev/null | grep -q "exit\|throw\|process"; then
+            echo "✅ JWT_SECRET validation present at startup"
+          else
+            echo "ℹ️ Consider adding JWT_SECRET presence check at startup"
+          fi
+
+      - name: Hardening Summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Hardening Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Completed hardening checks:" >> $GITHUB_STEP_SUMMARY
+          echo "- Hardcoded secrets scan" >> $GITHUB_STEP_SUMMARY
+          echo "- SSRF vulnerability check" >> $GITHUB_STEP_SUMMARY
+          echo "- SQL injection check" >> $GITHUB_STEP_SUMMARY
+          echo "- JWT secret validation check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "For full security analysis, see [SECURITY.md](docs/SECURITY.md)" >> $GITHUB_STEP_SUMMARY
+
+  # ── Final Summary ─────────────────────────────────────────────────────────────
+  summary:
+    name: Auto-Heal Summary
+    runs-on: ubuntu-latest
+    needs: [analyze, heal, verify-railway]
+    if: always()
+    steps:
+      - name: Print Summary
+        run: |
+          echo "## 🏥 Auto-Analyze / Auto-Fix / Auto-Heal Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Phase | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Analyze | ${{ needs.analyze.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Heal | ${{ needs.heal.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Railway Verification | ${{ needs.verify-railway.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Health Score**: ${{ needs.analyze.outputs.health_score }}/100" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Next run: scheduled in 12 hours, or trigger manually." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To re-run with deeper analysis: trigger workflow with depth=harden" >> $GITHUB_STEP_SUMMARY

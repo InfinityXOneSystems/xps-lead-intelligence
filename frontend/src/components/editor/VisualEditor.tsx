@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Sparkles, Play, Save, RotateCcw, Copy, Check, Code2, Eye, Loader2 } from 'lucide-react';
+import { useState, useRef, Suspense, lazy } from 'react';
+import { Sparkles, Play, RotateCcw, Copy, Check, Code2, Eye, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
+
+// Lazy-load Monaco to avoid SSR issues
+const MonacoEditor = lazy(() =>
+  import('@monaco-editor/react').then((m) => ({ default: m.Editor }))
+);
 
 type PreviewMode = 'split' | 'code' | 'preview';
 
@@ -222,13 +227,31 @@ Return ONLY the component code starting with 'use client'; — no markdown, no e
               style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.25)', background: '#0d0d1a' }}>
               MyComponent.tsx
             </div>
-            <textarea
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="flex-1 code-editor"
-              style={{ border: 'none', borderRadius: 0, background: '#0a0a14' }}
-              spellCheck={false}
-            />
+            <div className="flex-1 overflow-hidden">
+              <Suspense fallback={
+                <div className="flex-1 flex items-center justify-center" style={{ background: '#0a0a14', color: 'rgba(255,255,255,0.3)', height: '100%' }}>
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading editor…
+                </div>
+              }>
+                <MonacoEditor
+                  height="100%"
+                  language="typescript"
+                  theme="vs-dark"
+                  value={code}
+                  onChange={(v) => setCode(v ?? '')}
+                  options={{
+                    fontSize: 13,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    tabSize: 2,
+                    wordWrap: 'on',
+                    lineNumbers: 'on',
+                    renderLineHighlight: 'line',
+                    automaticLayout: true,
+                  }}
+                />
+              </Suspense>
+            </div>
           </div>
         )}
         {(mode === 'preview' || mode === 'split') && (
