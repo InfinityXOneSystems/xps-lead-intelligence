@@ -1,5 +1,27 @@
 # AGENTS — Autonomous AI Development System
 
+## Build
+
+Run locally:
+
+```bash
+docker compose up
+```
+
+| Service  | URL                    |
+|----------|------------------------|
+| Frontend | http://localhost:3000  |
+| Backend  | http://localhost:4000  |
+
+Run tests:
+
+```bash
+cd backend && npm test          # 111 unit tests
+cd e2e && npx playwright test   # E2E platform spec
+```
+
+---
+
 ## Overview
 
 XPS Lead Intelligence operates as a self-directing AI development platform.  
